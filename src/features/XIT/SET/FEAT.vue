@@ -20,11 +20,16 @@ if (userData.settings.mode === undefined) {
 
 const isFullMode = userData.settings.mode === 'FULL';
 
-const disabledFeatures = computed(() => new Set(userData.settings.disabled));
+// 由专门设置项控制的功能不在此列表出现，避免出现两道开关。
+const listed = features.registry.filter(x => !x.hidden);
 
-const available = isFullMode ? features.registry : features.registry.filter(x => !x.advanced);
+const disabledFeatures = computed(
+  () => new Set(userData.settings.disabled.filter(id => listed.some(x => x.id === id))),
+);
 
-const advanced = features.registry.filter(x => x.advanced);
+const available = isFullMode ? listed : listed.filter(x => !x.advanced);
+
+const advanced = listed.filter(x => x.advanced);
 
 const sorted = available.sort((a, b) => {
   const aDisabled = disabledFeatures.value.has(a.id);

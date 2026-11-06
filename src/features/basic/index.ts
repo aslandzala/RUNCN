@@ -80,6 +80,7 @@ import './lm-item-icons/lm-item-icons';
 import './macos-antialiased-font';
 import './mat-linkify-category';
 import './mat-refined-prun-price';
+import './material-price-tooltips';
 import './mtra-auto-focus-amount';
 import './mtra-transfer-on-enter';
 import './mu-fix-sector-names';

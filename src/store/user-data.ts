@@ -21,6 +21,7 @@ export const initialUserData = deepFreeze({
     pricing: {
       exchange: 'UNIVERSE',
       method: 'DEFAULT' as UserData.PricingMethod,
+      materialPriceTooltips: false,
     },
     burn: {
       red: 3,
