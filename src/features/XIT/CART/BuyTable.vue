@@ -2,7 +2,6 @@
 import MaterialIcon from '@src/components/MaterialIcon.vue';
 import PrunLink from '@src/components/PrunLink.vue';
 import PrunButton from '@src/components/PrunButton.vue';
-import { cxStore } from '@src/infrastructure/fio/cx';
 import { cxobStore } from '@src/infrastructure/prun-api/data/cxob';
 import { materialsStore } from '@src/infrastructure/prun-api/data/materials';
 import { getMaterialName } from '@src/infrastructure/prun-ui/i18n';
@@ -12,12 +11,53 @@ import { userData } from '@src/store/user-data';
 import { getTileState } from '@src/store/user-data-tiles';
 import { getWarehouseName } from '@src/features/XIT/CART/cart-utils';
 import { configurableValue } from '@src/features/XIT/ACT/shared-types';
+import { getPlanetBurn, type MaterialBurn } from '@src/core/burn';
+import { sitesStore } from '@src/infrastructure/prun-api/data/sites';
+import { useXitParameters } from '@src/hooks/use-xit-parameters';
 import { computeComponents, computeTotals, type BpcExchange } from '../BPC/bp-utils';
 
 const cart = computed(() => userData.cart);
+const parameters = useXitParameters();
+
+// XIT CBUY <星球编码>：BURN 比价模式。清单来自该星球消耗品报告的「需要」列，
+// 是临时计算，不读写 userData.cart，所以不会覆盖用户在 XIT CART 里维护的清单。
+// 不带参数时走原来的购物车比价，行为完全不变。
+const burnNaturalId = computed(() => parameters[0] ?? '');
+const burnMode = computed(() => burnNaturalId.value !== '');
+const burnSite = computed(() =>
+  burnMode.value ? sitesStore.getByPlanetNaturalIdOrName(burnNaturalId.value) : undefined,
+);
+const planetBurn = computed(() => getPlanetBurn(burnSite.value?.siteId));
+const burnLoading = computed(() => burnMode.value && planetBurn.value === undefined);
+
+// 与 BURN/MaterialRow.vue 的 needAmt 保持同一口径：补足到补给天数所需数量。
+function burnNeedAmount(mat: MaterialBurn, resupply: number) {
+  const days = mat.dailyAmount >= 0 ? 1000 : mat.daysLeft;
+  if (days > resupply || mat.dailyAmount > 0) {
+    return 0;
+  }
+  const need = Math.ceil((days - resupply) * mat.dailyAmount);
+  return need === 0 ? 0 : need;
+}
+
+const burnNeeds = computed(() => {
+  const burn = planetBurn.value;
+  if (!burnMode.value || !burn) {
+    return [];
+  }
+  const resupply = userData.settings.burn.resupply;
+  return Object.entries(burn.burn)
+    .map(([ticker, mat]) => ({
+      ticker,
+      name: ticker,
+      amount: burnNeedAmount(mat, resupply),
+    }))
+    .filter(item => Number.isFinite(item.amount) && item.amount > 0)
+    .sort((a, b) => a.ticker.localeCompare(b.ticker));
+});
 
 // 购物车物品即购买表的需求清单（同一 ticker 在 CART 内已合并）。
-const needs = computed(() =>
+const cartNeeds = computed(() =>
   cart.value.items
     .filter(item => item.ticker && Number.isFinite(item.amount) && item.amount > 0)
     .map(item => ({
@@ -26,6 +66,11 @@ const needs = computed(() =>
       amount: item.amount,
     })),
 );
+
+const needs = computed(() => (burnMode.value ? burnNeeds.value : cartNeeds.value));
+
+// 比价模式下生成的 ACT 包 / CONTGEN 清单用独立名字，避免覆盖购物车那份。
+const listName = computed(() => (burnMode.value ? `BURN ${burnNaturalId.value}` : cart.value.name));
 
 const selectedTickers = ref<Set<string>>(new Set());
 
@@ -40,8 +85,10 @@ const exchanges: BpcExchange[] = [
 const components = computed(() => computeComponents(needs.value, exchanges));
 const totals = computed(() => computeTotals(components.value, exchanges, selectedTickers.value));
 
+// 价格只来自游戏内实时订单簿（CXOB 推送），不连接 FIO 网站。
+// 原先用 `!cxStore.fetched` 拦住整张表，但 FIO 聚合价并不参与 readBuyPrice()，
+// 这个门槛只会让表格被一个无关的网络请求挡住，已移除。
 const noItems = computed(() => needs.value.length === 0);
-const noData = computed(() => !cxStore.fetched);
 
 function openCart() {
   showBuffer('XIT CART');
@@ -90,14 +137,76 @@ const selectedByExchange = computed(() => {
 
 // ACT 生成选项。
 const singleMarketMode = ref(false);
+// '' = 自动用「最便宜且凑齐全部物品」的市场；指定交易所代码则强制用该市场，
+// 即使它不是最优（差价不大时可以就近采购）。
+const forcedExchange = ref('');
 const transferToShip = ref(false);
 
 const cheapestSingleExchange = computed(() => totals.value.cheapestSingle?.code);
+const chosenSingleExchange = computed(() =>
+  singleMarketMode.value ? forcedExchange.value || cheapestSingleExchange.value : undefined,
+);
+const chosenExchangeTotal = computed(() =>
+  totals.value.exchanges.find(et => et.code === forcedExchange.value),
+);
+
+// 下拉选项直接给出各市场总价与相对最优的差价（沿用表格的 1:1 口径，不换算汇率），
+// 以及缺报价数，方便判断「差价不大就选就近市场」。
+const singleMarketOptions = computed(() => {
+  const best = totals.value.cheapestSingle;
+  const options = [
+    { value: '', label: best ? `自动（最优 ${best.code}）` : '自动（暂无凑齐的市场）' },
+  ];
+  for (const et of totals.value.exchanges) {
+    let suffix = '';
+    if (!et.complete) {
+      suffix = ` · 缺 ${et.missing} 种`;
+    } else if (best && et.code !== best.code) {
+      suffix = ` · +${fixed0(et.total - best.total)}`;
+    } else if (best) {
+      suffix = ' · 最优';
+    }
+    options.push({ value: et.code, label: `${et.code} · ${fixed0(et.total)}${suffix}` });
+  }
+  return options;
+});
+
+// 下拉选项里已经带了交易所代码、总价和相对最优的差价；这里只在需要用户处理的
+// 异常情况下补一句短提示，避免同一份信息在表头重复两遍、把控件区挤乱。
+const singleMarketHint = computed(() => {
+  if (!singleMarketMode.value) {
+    return '';
+  }
+  if (!forcedExchange.value) {
+    return cheapestSingleExchange.value ? '' : '无凑齐全部物品的市场，请指定交易所';
+  }
+  const et = chosenExchangeTotal.value;
+  if (!et || et.complete) {
+    return '';
+  }
+  return `${et.code} 缺 ${et.missing} 种报价`;
+});
+const singleMarketWarn = computed(
+  () =>
+    singleMarketMode.value &&
+    ((!cheapestSingleExchange.value && !forcedExchange.value) ||
+      chosenExchangeTotal.value?.complete === false),
+);
+
+// 点击交易所卡片直接指定该市场；再点一次回到「自动（最优）」。
+function pickExchange(code: string) {
+  if (singleMarketMode.value && forcedExchange.value === code) {
+    forcedExchange.value = '';
+    return;
+  }
+  singleMarketMode.value = true;
+  forcedExchange.value = code;
+}
 
 // 按"单市场"或"混合最优"分组的 selectedByExchange。
 const actGroups = computed(() => {
   if (singleMarketMode.value) {
-    const code = cheapestSingleExchange.value;
+    const code = chosenSingleExchange.value;
     if (!code) {
       return new Map<string, Record<string, number>>();
     }
@@ -154,8 +263,8 @@ function generateAct() {
       dest: configurableValue,
     });
   }
-  // 包名用购物车名 + " Buy" 后缀，避免与 CART 生成的同名 ACT 包互相覆盖。
-  const asciiName = asciiSafe(cart.value.name);
+  // 包名用清单名 + " Buy" 后缀，避免与 CART 生成的同名 ACT 包互相覆盖。
+  const asciiName = asciiSafe(listName.value);
   const name = asciiName ? `${asciiName} Buy` : 'Shopping Cart Buy';
   const pkg: UserData.ActionPackageData = { global: { name }, groups, actions };
   const existing = userData.actionPackages.findIndex(p => p.global.name === name);
@@ -188,7 +297,7 @@ function sendToContgen() {
     return;
   }
   const payload: { materials: Record<string, number>; name?: string } = { materials };
-  const asciiName = asciiSafe(cart.value.name);
+  const asciiName = asciiSafe(listName.value);
   if (asciiName.length > 0) {
     payload.name = asciiName;
   }
@@ -199,23 +308,120 @@ function sendToContgen() {
 
 const canSendToContgen = computed(() => components.value.length > 0);
 
-// 与 BPC/BMAT 一致：对当前所有 (ticker, 交易所) 打开 CXOB 缓冲窗拉取实时订单簿。
-function refreshPrices() {
-  const requested = new Set<string>();
-  for (const component of components.value) {
+// ── 实时盘口订阅（与 BPC/BMAT 同一套机制）──────────────────────────
+// showBuffer('CXOB <ticker>.<exchange>', { autoClose: true }) 会新建一个隐藏
+// 窗口（buffers.ts 给它加 hidden 类、隐藏 dock 按钮），游戏服务器随之推送
+// COMEX_BROKER_DATA 到 cxobStore；数据到达后窗口自动关闭。
+// bp-utils.readBuyPrice() 只读这份游戏内订单簿，与 FIO 网站无关。
+function openCxob(key: string, timedOut?: Ref<boolean>) {
+  void showBuffer(`CXOB ${key}`, {
+    autoClose: true,
+    closeWhen: computed(() => cxobStore.getByTicker(key) !== undefined || timedOut?.value === true),
+  });
+}
+
+function pendingCxobKeys() {
+  const keys = new Set<string>();
+  for (const need of needs.value) {
     for (const exchange of exchanges) {
-      const key = `${component.ticker}.${exchange.code}`;
-      if (requested.has(key) || cxobStore.getByTicker(key) !== undefined) {
-        continue;
+      const key = `${need.ticker}.${exchange.code}`;
+      if (cxobStore.getByTicker(key) === undefined) {
+        keys.add(key);
       }
-      requested.add(key);
-      showBuffer(`CXOB ${key}`, {
-        autoClose: true,
-        closeWhen: computed(() => cxobStore.getByTicker(key) !== undefined),
-      });
     }
   }
+  return [...keys];
 }
+
+// 手动「更新价格」：行为与原来一致，只补当前缺失的订单簿。
+function refreshPrices() {
+  for (const key of pendingCxobKeys()) {
+    openCxob(key);
+  }
+}
+
+// 「比价」模式打开即自动订阅，不需要再点一次按钮。
+// 分批推入 showBuffer 的全局串行队列：一次性排满几十个请求会把用户手动开的
+// 缓冲窗堵在队尾。没有订单簿的物品服务器不会推数据，用超时兜底关掉隐藏窗口。
+const autoStarted = ref(false);
+const autoTimedOut = shallowRef(false);
+const disposed = ref(false);
+let autoTimer: number | undefined;
+
+async function autoRefreshPrices() {
+  if (autoStarted.value) {
+    return;
+  }
+  autoStarted.value = true;
+  const keys = pendingCxobKeys();
+  if (keys.length === 0) {
+    return;
+  }
+  autoTimedOut.value = false;
+  autoTimer = window.setTimeout(() => (autoTimedOut.value = true), 60000);
+  for (let i = 0; i < keys.length && !disposed.value; i += 6) {
+    for (const key of keys.slice(i, i + 6)) {
+      if (cxobStore.getByTicker(key) === undefined) {
+        openCxob(key, autoTimedOut);
+      }
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 600));
+  }
+}
+
+onMounted(() => {
+  watch(
+    () => burnMode.value && needs.value.length > 0,
+    ready => {
+      if (ready) {
+        void autoRefreshPrices();
+      }
+    },
+    { immediate: true },
+  );
+  // 比价（XIT CBUY <星球>）默认按整份补给清单计算。原组件的勾选框默认全空，
+  // 而「最优混合总价 / 最便宜单交易所 / 生成 ACT」都只算已选物品，不初始化就恒为 0。
+  // 按清单内容初始化一次：之后用户手动取消勾选（哪怕清空）都不会被强行拉回；
+  // 换成另一个星球、清单变了才重新全选。直接输 XIT CBUY 的购物车模式完全不参与。
+  let initializedFor = '';
+  watch(
+    () => (burnMode.value ? components.value.map(c => c.ticker).join('|') : ''),
+    key => {
+      if (!burnMode.value || !key || initializedFor === key) {
+        return;
+      }
+      selectedTickers.value = new Set(components.value.map(c => c.ticker));
+      initializedFor = key;
+    },
+    { immediate: true },
+  );
+});
+
+onUnmounted(() => {
+  disposed.value = true;
+  if (autoTimer !== undefined) {
+    window.clearTimeout(autoTimer);
+  }
+  // 组件关掉后不再需要盘口：让还没等到数据的隐藏窗口也走 closeWhen 关闭，
+  // 避免留下无人认领的空壳。
+  autoTimedOut.value = true;
+});
+
+const priceProgress = computed(() => {
+  if (!burnMode.value) {
+    return undefined;
+  }
+  const total = needs.value.length * exchanges.length;
+  let done = 0;
+  for (const need of needs.value) {
+    for (const exchange of exchanges) {
+      if (cxobStore.getByTicker(`${need.ticker}.${exchange.code}`) !== undefined) {
+        done++;
+      }
+    }
+  }
+  return { done, total };
+});
 
 function localized(component: { ticker: string; name: string }): string {
   const material = materialsStore.getByTicker(component.ticker);
@@ -253,11 +459,16 @@ function isBest(component: { bestExchange?: string }, code: string) {
 <template>
   <div :class="$style.page">
     <div :class="$style.controls">
-      <span :class="$style.controlLabel">购物车</span>
+      <span :class="$style.controlLabel">{{ burnMode ? '比价来源' : '购物车' }}</span>
       <span :class="$style.cartMeta">
-        <strong>{{ cart.name }}</strong>
-        <template v-if="cart.exchange"> · {{ cart.exchange }}</template>
-        · {{ cart.items.length }} 种
+        <template v-if="burnMode">
+          <strong>XIT BURN {{ burnNaturalId }}</strong> · {{ needs.length }} 种需补物资
+        </template>
+        <template v-else>
+          <strong>{{ cart.name }}</strong>
+          <template v-if="cart.exchange"> · {{ cart.exchange }}</template>
+          · {{ cart.items.length }} 种
+        </template>
       </span>
       <input
         id="cbu-search"
@@ -272,10 +483,27 @@ function isBest(component: { bestExchange?: string }, code: string) {
           id="cbu-single-market"
           v-model="singleMarketMode"
           name="cbu-single-market"
-          type="checkbox"
-          :disabled="!cheapestSingleExchange" />
+          type="checkbox" />
         <span :class="$style.controlLabel">单市场购买</span>
       </label>
+      <select
+        v-if="singleMarketMode"
+        id="cbu-forced-exchange"
+        v-model="forcedExchange"
+        name="cbu-forced-exchange"
+        :class="$style.input"
+        style="width: 250px"
+        data-tooltip="可指定任意交易所（含非最优）；差价按 1:1 口径，不换算汇率"
+        data-tooltip-position="bottom">
+        <option v-for="opt in singleMarketOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
+      </select>
+      <span
+        v-if="singleMarketHint"
+        :class="[$style.singleMarketHint, singleMarketWarn ? $style.summaryWarn : '']">
+        {{ singleMarketHint }}
+      </span>
       <label :class="$style.control">
         <input
           id="cbu-transfer-ship"
@@ -297,12 +525,22 @@ function isBest(component: { bestExchange?: string }, code: string) {
       >
     </div>
 
-    <div v-if="noItems" :class="$style.empty">
-      购物车是空的。请先到
-      <PrunButton dark inline @click="openCart">XIT CART</PrunButton>
-      添加要购买的物品。
+    <div v-if="burnMode && !burnSite" :class="$style.empty">
+      找不到星球 {{ burnNaturalId }}，无法生成比价清单。
     </div>
-    <div v-else-if="noData" :class="$style.empty">正在加载 FIO 价格数据，请稍候…</div>
+    <div v-else-if="burnLoading" :class="$style.empty">
+      正在加载 {{ burnNaturalId }} 的消耗品数据，请稍候…
+    </div>
+    <div v-else-if="noItems" :class="$style.empty">
+      <template v-if="burnMode">
+        {{ burnNaturalId }} 当前没有需要补给的消耗品（按补给天数过滤）。
+      </template>
+      <template v-else>
+        购物车是空的。请先到
+        <PrunButton dark inline @click="openCart">XIT CART</PrunButton>
+        添加要购买的物品。
+      </template>
+    </div>
     <template v-else>
       <div :class="$style.summaryBar">
         <span :class="$style.summaryItem">
@@ -328,6 +566,13 @@ function isBest(component: { bestExchange?: string }, code: string) {
           最优混合总价 ·
           <strong>{{ fixed0(totals.mixedTotal) }}</strong>
           <span :class="$style.summaryNote">（1:1 不含汇率）</span>
+        </span>
+        <span v-if="burnMode" :class="$style.summaryNote">
+          ·
+          <template v-if="priceProgress && priceProgress.done < priceProgress.total">
+            正在读取游戏实时盘口 {{ priceProgress.done }}/{{ priceProgress.total }}
+          </template>
+          <template v-else>价格来自游戏实时盘口 CXOB</template>
         </span>
       </div>
 
@@ -358,7 +603,13 @@ function isBest(component: { bestExchange?: string }, code: string) {
           <tbody v-if="filtered.length === 0">
             <tr>
               <td colspan="100" :class="$style.empty">
-                {{ components.length === 0 ? '购物车暂无可比价的物品。' : '没有匹配的物品。' }}
+                {{
+                  components.length === 0
+                    ? burnMode
+                      ? '该星球暂无可比价的物品。'
+                      : '购物车暂无可比价的物品。'
+                    : '没有匹配的物品。'
+                }}
               </td>
             </tr>
           </tbody>
@@ -432,10 +683,17 @@ function isBest(component: { bestExchange?: string }, code: string) {
               ? $style.exchangeCardBest
               : '',
             !et.complete ? $style.exchangeCardIncomplete : '',
-          ]">
+            singleMarketMode && forcedExchange === et.code ? $style.exchangeCardChosen : '',
+            $style.exchangeCardClickable,
+          ]"
+          title="点击指定该交易所为单市场购买的市场；再点一次恢复自动"
+          @click="pickExchange(et.code)">
           <div :class="$style.exchangeCardHead">
             <strong>{{ et.code }}</strong>
             <span :class="$style.exchangeCurrency">{{ et.currency }}</span>
+            <span v-if="singleMarketMode && forcedExchange === et.code" :class="$style.chosenTag">
+              已指定
+            </span>
           </div>
           <div :class="$style.exchangeTotal">{{ fixed0(et.total) }}</div>
           <div :class="$style.exchangeMeta">
@@ -463,6 +721,12 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .controlLabel {
   color: rgb(200, 208, 214);
+  white-space: nowrap;
+}
+
+/* 只在警告态渲染，颜色由后面的 .summaryWarn 给红色；nowrap 防止撑乱表头 */
+.singleMarketHint {
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -732,6 +996,22 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .exchangeCardIncomplete {
   opacity: 0.7;
+}
+
+/* 交易所卡片可直接点选；橙框优先于「最优」绿框，表示用户强行指定 */
+.exchangeCardClickable {
+  cursor: pointer;
+}
+
+.exchangeCardChosen {
+  border-color: rgb(255, 176, 0);
+  background: rgba(255, 176, 0, 0.1);
+}
+
+.chosenTag {
+  margin-left: auto;
+  color: rgb(255, 176, 0);
+  font-size: 11px;
 }
 
 .exchangeCardHead {

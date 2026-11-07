@@ -7,6 +7,7 @@ import FIN from '@src/features/XIT/SET/FIN.vue';
 import BFR from '@src/features/XIT/SET/BFR.vue';
 import TRANSLATE from '@src/features/XIT/SET/TRANSLATE.vue';
 import DARK from '@src/features/XIT/SET/DARK.vue';
+import REPAIR from '@src/features/XIT/SET/REPAIR.vue';
 
 const tabs: Tab[] = [
   {
@@ -28,6 +29,11 @@ const tabs: Tab[] = [
     id: 'BFR',
     label: '缓冲区',
     component: BFR,
+  },
+  {
+    id: 'REPAIR',
+    label: '维修',
+    component: REPAIR,
   },
   {
     id: 'TRANSLATE',
