@@ -5,6 +5,7 @@ import vue from '@vitejs/plugin-vue';
 import vueJsx from '@vitejs/plugin-vue-jsx';
 import unimport from 'unimport/unplugin';
 import { createHash } from 'crypto';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -27,6 +28,40 @@ const noise = new Set([
 
 const outDir = resolve(__dirname, 'dist');
 
+// 版本号按「年.月.日.时分」（Asia/Shanghai）生成。public/manifest.json 只是源码占位，
+// 真正写进 dist/manifest.json 的是构建时刻，避免仓库静态值长期滞后（右下角一度
+// 停在 26.8.23）。CI 发版时用 RELEASE_VERSION 固定成 release tag，保证附件名一致。
+function buildVersion(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const part = (type: string) => Number(parts.find(p => p.type === type)?.value ?? 0);
+  const hhmm = Number(
+    `${String(part('hour')).padStart(2, '0')}${String(part('minute')).padStart(2, '0')}`,
+  );
+  return `${part('year') % 100}.${part('month')}.${part('day')}.${hhmm}`;
+}
+
+const versionPlugin = {
+  name: 'runcn-build-version',
+  apply: 'build' as const,
+  closeBundle() {
+    const file = resolve(outDir, 'manifest.json');
+    if (!existsSync(file)) {
+      return;
+    }
+    const manifest = JSON.parse(readFileSync(file, 'utf8'));
+    manifest.version = process.env.RELEASE_VERSION || buildVersion();
+    writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  },
+};
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -35,6 +70,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    versionPlugin,
     vue(),
     vueJsx(),
     unimport.vite({
