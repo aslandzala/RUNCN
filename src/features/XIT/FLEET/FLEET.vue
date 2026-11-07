@@ -65,6 +65,8 @@ const exchangeFilterOptions: { label: string; code: string }[] = [
 // 重复加油会让仓库循环抽料。故 FLEET 不再保留 refuel 配置与包动作。
 
 const tile = useTile();
+// 嵌在其他面板里（例如 FB）时可以收紧「分配」列，独立使用时保持原样。
+const props = defineProps<{ compactShip?: boolean }>();
 const panesEl = ref<HTMLElement | null>(null);
 
 // Mode
@@ -74,6 +76,9 @@ const viewMode = useTileState<ViewMode>('viewMode', 'plan');
 // Plan mode state
 const baseConfigs = useTileState<Record<string, DispatchBaseConfig>>('baseConfigs', {});
 const baseOrder = useTileState<string[]>('baseOrder', []);
+// 默认按列头排序；用户拖过行之后只认手动顺序，再点列头又回到自动排序。
+// 没有这个开关时 baseOrder（拖拽 / 飞船分组写入）会永久覆盖列排序。
+const manualOrder = useTileState<boolean>('manualOrder', false);
 const orderedIds = ref<string[]>([]);
 const exchangeFilter = useTileState<string | undefined>('exchangeFilter', undefined);
 // 执行时同步在 TRIGGER 面板创建一次性到港卸货触发器。
@@ -88,20 +93,17 @@ const showRepair = useTileState('showRepair', true);
 const showInv = useTileState('showInv', true);
 const showWar = useTileState('showWar', true);
 
-// Sort
-type SortKey = 'name' | 'burn' | 'repair';
+// Sort：只有「消耗」列可排序（按剩余天数），点表头切换升/降序。
+// 「维护」列是普通表头，不再有排序按钮，也不参与排序。
 type SortDirection = 'asc' | 'desc';
-const sortKey = useTileState<SortKey>('sortKey', 'burn');
 const sortDirection = useTileState<SortDirection>('sortDirection', 'asc');
 const planetFilter = ref('');
 
-function setSort(key: SortKey) {
-  if (sortKey.value === key) {
-    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
-  } else {
-    sortKey.value = key;
-    sortDirection.value = 'asc';
-  }
+function toggleBurnSort() {
+  sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+  // 点列头即要求按这一列重排，放弃手动拖拽 / 飞船分组固化的顺序。
+  manualOrder.value = false;
+  baseOrder.value = [];
 }
 
 function createBaseConfig(naturalId: string): DispatchBaseConfig {
@@ -222,15 +224,11 @@ const filteredRows = computed(() => {
 
   const dir = sortDirection.value === 'asc' ? 1 : -1;
   return [...result].sort((a, b) => {
-    if (sortKey.value === 'burn') {
-      const daysA = burnDaysRemaining(a.base.siteId);
-      const daysB = burnDaysRemaining(b.base.siteId);
-      if (daysA !== daysB) {
-        return (daysA - daysB) * dir;
-      }
-    }
-    if (sortKey.value === 'repair') {
-      return comparePlanets(a.base.naturalId, b.base.naturalId) * dir;
+    const daysA = burnDaysRemaining(a.base.siteId);
+    const daysB = burnDaysRemaining(b.base.siteId);
+    if (daysA !== daysB) {
+      // 两边都是 Infinity 时做减法会得到 NaN，比较器失效等于没排序。
+      return (daysA < daysB ? -1 : 1) * dir;
     }
     return comparePlanets(a.base.naturalId, b.base.naturalId) * dir;
   });
@@ -290,30 +288,22 @@ const billByBase = computed(() => {
   return map;
 });
 
-// Keep orderedIds in sync with bases + baseOrder.
+// Keep orderedIds in sync with the active ordering mode.
+// 自动模式：行序就是 filteredRows 的列排序结果，点列头 / 天数变化都会即时反映。
+// 手动模式：baseOrder 里的排前面，其余缺失基地沿用 filteredRows 的顺序补在后面。
 watchEffect(() => {
   const list = filteredRows.value;
-  const present = new Map(list.map(x => [x.base.naturalId, x.base]));
-  const ordered: string[] = [];
-  for (const id of baseOrder.value) {
-    if (present.has(id)) {
-      ordered.push(id);
-    }
+  const ids = list.map(x => x.base.naturalId);
+  let next: string[];
+  if (!manualOrder.value) {
+    next = ids;
+  } else {
+    const present = new Set(ids);
+    const ordered = baseOrder.value.filter(id => present.has(id));
+    const orderedSet = new Set(ordered);
+    const remaining = ids.filter(id => !orderedSet.has(id));
+    next = [...ordered, ...remaining];
   }
-  const orderedSet = new Set(ordered);
-  const remaining = list
-    .filter(x => !orderedSet.has(x.base.naturalId))
-    .map(x => x.base)
-    .sort((a, b) => {
-      const daysA = burnDaysRemaining(a.siteId);
-      const daysB = burnDaysRemaining(b.siteId);
-      if (daysA !== daysB) {
-        return daysA - daysB;
-      }
-      return comparePlanets(a.naturalId, b.naturalId);
-    })
-    .map(x => x.naturalId);
-  const next = [...ordered, ...remaining];
   if (next.length !== orderedIds.value.length || next.some((id, i) => id !== orderedIds.value[i])) {
     orderedIds.value = next;
   }
@@ -331,6 +321,10 @@ const shipAssignments = computed(() => {
 });
 
 watch(shipAssignments, map => {
+  // 自动排序模式下不按飞船重新分组，否则会把刚排好的列顺序又打乱。
+  if (!manualOrder.value) {
+    return;
+  }
   const next = regroupByShip(orderedIds.value, map);
   if (next.some((id, i) => id !== orderedIds.value[i])) {
     orderedIds.value = next;
@@ -342,6 +336,7 @@ const dragOptions = {
   ...grip.draggable,
   onEnd: (evt: unknown) => {
     grip.draggable.onEnd?.(evt as never);
+    manualOrder.value = true;
     baseOrder.value = [...orderedIds.value];
   },
 };
@@ -695,6 +690,7 @@ function execute() {
 function reset() {
   baseConfigs.value = {};
   baseOrder.value = [];
+  manualOrder.value = false;
 }
 
 const dispatchConfigType = 'rp-dispatch-config';
@@ -778,6 +774,7 @@ async function importDispatchConfig() {
   normalizeDispatchBaseConfigs(configs);
   baseConfigs.value = configs;
   baseOrder.value = config.baseOrder ?? [];
+  manualOrder.value = (config.baseOrder?.length ?? 0) > 0;
   exchangeFilter.value = config.exchangeFilter;
   setNotice('配置已导入');
 }
@@ -863,7 +860,7 @@ async function importDispatchConfig() {
       <div v-else ref="panesEl" :class="$style.panes">
         <ShipPool :ships="filteredCxShips" :base-configs="baseConfigs" />
         <div :class="$style.left">
-          <table :class="$style.table">
+          <table :class="[$style.table, props.compactShip && $style.compactShip]">
             <thead>
               <tr>
                 <th :class="[$style.narrowCol, $style.centered]">分配</th>
@@ -873,23 +870,13 @@ async function importDispatchConfig() {
                 <th :class="[$style.narrowCol, $style.centered]">天数</th>
                 <th
                   :class="[$style.narrowCol, $style.centered, $style.sortable]"
-                  @click="setSort('burn')">
+                  @click="toggleBurnSort()">
                   消耗
-                  <span :class="sortKey === 'burn' ? $style.sortActive : $style.sortInactive">{{
-                    sortKey === 'burn' ? (sortDirection === 'asc' ? '▲' : '▼') : '▲'
-                  }}</span>
+                  <span :class="$style.sortActive">{{ sortDirection === 'asc' ? '▲' : '▼' }}</span>
                 </th>
                 <th v-if="showProd" :class="[$style.narrowCol, $style.centered]">生产</th>
                 <th v-if="showRepair" :class="[$style.narrowCol, $style.centered]">维修</th>
-                <th
-                  v-if="showRepair"
-                  :class="[$style.narrowCol, $style.centered, $style.sortable]"
-                  @click="setSort('repair')">
-                  维护
-                  <span :class="sortKey === 'repair' ? $style.sortActive : $style.sortInactive">{{
-                    sortKey === 'repair' ? (sortDirection === 'asc' ? '▲' : '▼') : '▲'
-                  }}</span>
-                </th>
+                <th v-if="showRepair" :class="[$style.narrowCol, $style.centered]">维护</th>
                 <th :class="[$style.narrowCol, $style.centered]">提前</th>
                 <th :class="[$style.narrowCol, $style.centered]">装载</th>
                 <th :class="[$style.narrowCol, $style.centered]">物资</th>
@@ -1033,6 +1020,26 @@ async function importDispatchConfig() {
   border-collapse: collapse;
 }
 
+/* 收紧「分配」列：船名不会太长，6 个汉字左右够用，超长省略号。 */
+.compactShip td:first-child > div {
+  width: 64px;
+  max-width: 64px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.compactShip td:first-child > div > button {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.compactShip td:first-child span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .table thead tr {
   border-bottom: 1px solid #2b485a;
   box-sizing: border-box;
@@ -1055,10 +1062,6 @@ async function importDispatchConfig() {
 .sortActive {
   color: rgb(171, 198, 128);
   font-weight: bold;
-}
-
-.sortInactive {
-  color: rgb(63, 162, 222);
 }
 
 .invHeaderCol {

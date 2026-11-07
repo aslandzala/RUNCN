@@ -34,6 +34,13 @@ export const initialUserData = deepFreeze({
       offset: 10,
       planetOverrides: {} as Record<string, { threshold?: number; offset?: number }>,
     },
+    repairBoard: {
+      useOptimal: true,
+      targetDays: 90,
+      dueSoonDays: 7,
+      arrivalDays: 0,
+      subtractStore: true,
+    },
     repairPlan: {},
     sidebar: [
       ['基地', 'BS'],

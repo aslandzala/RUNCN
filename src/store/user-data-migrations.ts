@@ -44,6 +44,23 @@ export function normalizeDispatchBaseConfigs(configs: Record<string, any>) {
 // 日期仅供参考，不影响迁移顺序。
 const migrations: MigrationEntry[] = [
   [
+    '06.11.2026 Add repair board settings',
+    userData => {
+      // 维修到期看板（XIT REPD）的设置。存量用户没有这一段，回填默认值。
+      const settings = userData.settings;
+      if (!settings) {
+        return;
+      }
+      settings.repairBoard ??= {
+        useOptimal: true,
+        targetDays: 90,
+        dueSoonDays: 7,
+        arrivalDays: 0,
+        subtractStore: true,
+      };
+    },
+  ],
+  [
     '04.09.2026 Add screen variables',
     userData => {
       if (!userData.screenVariables || typeof userData.screenVariables !== 'object') {

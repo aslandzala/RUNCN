@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import CopyButton from '@src/components/CopyButton.vue';
+import PrunButton from '@src/components/PrunButton.vue';
 import RadioItem from '@src/components/forms/RadioItem.vue';
-import { BurnValues, getPlanetBurn, MaterialBurn, PlanetBurn } from '@src/core/burn';
+import { showBuffer } from '@src/infrastructure/prun-ui/buffers';
+import { BurnValues, getPlanetBurn, MaterialBurn } from '@src/core/burn';
 import { comparePlanets } from '@src/core/game-lookups';
 import BurnSection from '@src/features/XIT/BURN/BurnSection.vue';
 import { useBurnTileState, useBurnFilters } from '@src/features/XIT/BURN/burn-state';
@@ -11,7 +12,7 @@ import MaterialRow from '@src/features/XIT/BURN/MaterialRow.vue';
 import { useXitParameters } from '@src/hooks/use-xit-parameters';
 import { materialsStore } from '@src/infrastructure/prun-api/data/materials';
 import { sitesStore } from '@src/infrastructure/prun-api/data/sites';
-import { countDays, getSortedTickers } from '@src/features/XIT/BURN/utils';
+import { countDays } from '@src/features/XIT/BURN/utils';
 import InlineFlex from '@src/components/InlineFlex.vue';
 import { querySites } from '@src/features/XIT/shared/site-query';
 
@@ -154,40 +155,21 @@ function onExpandAllClick() {
   }
 }
 
-// Exports all materials regardless of active color filters (RED/YELLOW/GREEN/INF)
-// so spreadsheet users always get the complete dataset.
-function formatBurnTable(burns: PlanetBurn[]) {
-  const header =
-    io.value === true
-      ? '星球\t代号\t库存\t输入\t输出\t净变化\t天数'
-      : '星球\t代号\t库存\t消耗/天\t天数';
-  const lines = [header];
-  for (const planet of burns) {
-    const sorted = getSortedTickers(planet);
-    for (const material of sorted) {
-      const mat = planet.burn[material.ticker];
-      // Floor needed here: per-planet burns are pre-floored, but overall burn is not.
-      const days = mat.dailyAmount >= 0 ? '' : Math.floor(mat.daysLeft).toString();
-      const burn = Math.round(mat.dailyAmount * 1000) / 1000;
-      if (io.value === true) {
-        const inAmt = Math.round((mat.input + mat.workforce) * 1000) / 1000;
-        const outAmt = Math.round(mat.output * 1000) / 1000;
-        lines.push(
-          `${planet.planetName}\t${material.ticker}\t${mat.inventory}\t${inAmt}\t${outAmt}\t${burn}\t${days}`,
-        );
-      } else {
-        lines.push(`${planet.planetName}\t${material.ticker}\t${mat.inventory}\t${burn}\t${days}`);
-      }
-    }
+// 「比价」按钮用 XIT CBUY <星球编码> 打开采购比价：CBUY 会按该星球消耗品报告的
+// 「需要」列生成临时清单，不读写 XIT CART 购物车。多星球 / 总览没有唯一的
+// 补货清单，这时不显示按钮。
+const trialNaturalId = computed(() => {
+  const planets = planetBurn.value;
+  if (!planets || planets.length !== 1 || !planets[0].naturalId) {
+    return undefined;
   }
-  return lines.join('\n');
-}
+  return planets[0].naturalId;
+});
 
-function copyBurnTable() {
-  if (!planetBurn.value) {
-    return '';
+function onTrialClick() {
+  if (trialNaturalId.value) {
+    showBuffer(`XIT CBUY ${trialNaturalId.value}`);
   }
-  return formatBurnTable(planetBurn.value);
 }
 </script>
 
@@ -219,7 +201,14 @@ function copyBurnTable() {
       <div :class="$style.separator" />
       <RadioItem v-model="io" horizontal>I/O</RadioItem>
       <div :class="$style.spacer" />
-      <CopyButton :copy-fn="copyBurnTable" data-tooltip-position="bottom" />
+      <PrunButton
+        v-if="trialNaturalId"
+        primary
+        data-tooltip="按当前星球的补给需求，用游戏实时盘口对比各交易所采购成本"
+        data-tooltip-position="top"
+        @click="onTrialClick"
+        >比价</PrunButton
+      >
     </div>
     <table>
       <thead>
