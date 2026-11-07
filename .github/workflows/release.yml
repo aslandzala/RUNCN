@@ -57,20 +57,28 @@ jobs:
             process.exit(78);
           }
           const { execSync } = require('child_process');
-          const date = new Intl.DateTimeFormat('en-CA', {
+          // 版本号 = 年.月.日.时分（Asia/Shanghai；Chrome manifest 最多 4 段整数）。
+          // 同一分钟内重复发布时按分钟顺延，始终保持 4 段，不再生成非法的 5 段版本号。
+          const formatter = new Intl.DateTimeFormat('en-CA', {
             timeZone: 'Asia/Shanghai',
             year: 'numeric',
             month: '2-digit',
             day: '2-digit',
-          }).format(new Date());
-          let [y, m, d] = date.slice(2).split('-').map(x => Number(x));
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+          });
           const taken = new Set(execSync('git tag', { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean));
-          let version = `${y}.${m}.${d}`;
-          let suffix = 1;
-          while (taken.has(version)) {
-            // 同一天二次发布：在日期后追加序号（26.8.19.1、26.8.19.2 …），不顺延到次日。
-            version = `${y}.${m}.${d}.${suffix}`;
-            suffix += 1;
+          const base = new Date();
+          let version = '';
+          for (let i = 0; i < 1440; i++) {
+            const parts = formatter.formatToParts(new Date(base.getTime() + i * 60000));
+            const part = type => Number(parts.find(p => p.type === type)?.value ?? 0);
+            const hhmm = Number(
+              `${String(part('hour')).padStart(2, '0')}${String(part('minute')).padStart(2, '0')}`,
+            );
+            version = `${part('year') % 100}.${part('month')}.${part('day')}.${hhmm}`;
+            if (!taken.has(version)) break;
           }
           fs.writeFileSync('/tmp/release-notes.md', body);
           console.log(`VERSION=${version}`);
@@ -91,6 +99,8 @@ jobs:
         run: npx dot-json@1 public/manifest.json version "${{ steps.parse.outputs.VERSION }}"
       - name: Build
         run: pnpm build
+        env:
+          RELEASE_VERSION: ${{ steps.parse.outputs.VERSION }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
