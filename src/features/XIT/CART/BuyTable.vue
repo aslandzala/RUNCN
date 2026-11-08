@@ -135,67 +135,48 @@ const selectedByExchange = computed(() => {
   return groups;
 });
 
-// ACT 生成选项。
-const singleMarketMode = ref(false);
-// '' = 自动用「最便宜且凑齐全部物品」的市场；指定交易所代码则强制用该市场，
-// 即使它不是最优（差价不大时可以就近采购）。
+// ACT 生成选项。默认单市场：选中最便宜且凑齐全部物品的交易所整单购买。
+// singleMarketMode=false 时按各物品最优价分市场购买（最优混合），由顶部
+// 「分市场购买」复选框控制。
+const singleMarketMode = ref(true);
+// '' = 用最优市场；指定交易所代码则强制用该市场，即使它不是最优（就近采购）。
 const forcedExchange = ref('');
 const transferToShip = ref(false);
+
+// 复选框与卡片选中互为反向，两个控件状态永远一致：点卡片会自动取消勾选，
+// 勾选「分市场购买」后所有卡片橙框消失、只作比价参考。
+const splitMarketMode = computed({
+  get: () => !singleMarketMode.value,
+  set: (value: boolean) => {
+    singleMarketMode.value = !value;
+  },
+});
 
 const cheapestSingleExchange = computed(() => totals.value.cheapestSingle?.code);
 const chosenSingleExchange = computed(() =>
   singleMarketMode.value ? forcedExchange.value || cheapestSingleExchange.value : undefined,
 );
-const chosenExchangeTotal = computed(() =>
-  totals.value.exchanges.find(et => et.code === forcedExchange.value),
-);
 
-// 下拉选项直接给出各市场总价与相对最优的差价（沿用表格的 1:1 口径，不换算汇率），
-// 以及缺报价数，方便判断「差价不大就选就近市场」。
-const singleMarketOptions = computed(() => {
+// 卡片右上角角标：最优市场标「最优」，其余标相对最优的价差（1:1 口径，不换算
+// 汇率）；没凑齐全部物品的市场总价不可比，改标缺报价数，避免出现负差价。
+function exchangeBadge(et: (typeof totals.value.exchanges)[number]) {
   const best = totals.value.cheapestSingle;
-  const options = [
-    { value: '', label: best ? `自动（最优 ${best.code}）` : '自动（暂无凑齐的市场）' },
-  ];
-  for (const et of totals.value.exchanges) {
-    let suffix = '';
-    if (!et.complete) {
-      suffix = ` · 缺 ${et.missing} 种`;
-    } else if (best && et.code !== best.code) {
-      suffix = ` · +${fixed0(et.total - best.total)}`;
-    } else if (best) {
-      suffix = ' · 最优';
-    }
-    options.push({ value: et.code, label: `${et.code} · ${fixed0(et.total)}${suffix}` });
+  if (best && et.code === best.code) {
+    return { text: '最优', kind: 'best' as const };
   }
-  return options;
-});
+  if (!et.complete) {
+    return { text: `缺 ${et.missing} 种`, kind: 'warn' as const };
+  }
+  if (best) {
+    return { text: `+${fixed0(et.total - best.total)}`, kind: 'diff' as const };
+  }
+  return undefined;
+}
 
-// 下拉选项里已经带了交易所代码、总价和相对最优的差价；这里只在需要用户处理的
-// 异常情况下补一句短提示，避免同一份信息在表头重复两遍、把控件区挤乱。
-const singleMarketHint = computed(() => {
-  if (!singleMarketMode.value) {
-    return '';
-  }
-  if (!forcedExchange.value) {
-    return cheapestSingleExchange.value ? '' : '无凑齐全部物品的市场，请指定交易所';
-  }
-  const et = chosenExchangeTotal.value;
-  if (!et || et.complete) {
-    return '';
-  }
-  return `${et.code} 缺 ${et.missing} 种报价`;
-});
-const singleMarketWarn = computed(
-  () =>
-    singleMarketMode.value &&
-    ((!cheapestSingleExchange.value && !forcedExchange.value) ||
-      chosenExchangeTotal.value?.complete === false),
-);
-
-// 点击交易所卡片直接指定该市场；再点一次回到「自动（最优）」。
+// 点击卡片选定该交易所；再点一次当前已选中的卡片则取消单市场，回到最优混合。
 function pickExchange(code: string) {
-  if (singleMarketMode.value && forcedExchange.value === code) {
+  if (singleMarketMode.value && chosenSingleExchange.value === code) {
+    singleMarketMode.value = false;
     forcedExchange.value = '';
     return;
   }
@@ -204,12 +185,10 @@ function pickExchange(code: string) {
 }
 
 // 按"单市场"或"混合最优"分组的 selectedByExchange。
+// 没有任何市场凑齐全部物品时（cheapestSingle 为空）自动退回混合，保证 ACT 仍可生成。
 const actGroups = computed(() => {
-  if (singleMarketMode.value) {
-    const code = chosenSingleExchange.value;
-    if (!code) {
-      return new Map<string, Record<string, number>>();
-    }
+  const code = singleMarketMode.value ? chosenSingleExchange.value : undefined;
+  if (code) {
     const bucket: Record<string, number> = {};
     for (const c of components.value) {
       if (!selectedTickers.value.has(c.ticker)) {
@@ -478,32 +457,17 @@ function isBest(component: { bestExchange?: string }, code: string) {
         type="text"
         placeholder="搜索物品 ticker 或名称" />
       <PrunButton primary :disabled="noItems" @click="refreshPrices">更新价格</PrunButton>
-      <label :class="$style.control">
-        <input
-          id="cbu-single-market"
-          v-model="singleMarketMode"
-          name="cbu-single-market"
-          type="checkbox" />
-        <span :class="$style.controlLabel">单市场购买</span>
-      </label>
-      <select
-        v-if="singleMarketMode"
-        id="cbu-forced-exchange"
-        v-model="forcedExchange"
-        name="cbu-forced-exchange"
-        :class="$style.input"
-        style="width: 250px"
-        data-tooltip="可指定任意交易所（含非最优）；差价按 1:1 口径，不换算汇率"
+      <label
+        :class="$style.control"
+        data-tooltip="按各物品最优价分市场采购；不勾选则按选中卡片的交易所整单购买"
         data-tooltip-position="bottom">
-        <option v-for="opt in singleMarketOptions" :key="opt.value" :value="opt.value">
-          {{ opt.label }}
-        </option>
-      </select>
-      <span
-        v-if="singleMarketHint"
-        :class="[$style.singleMarketHint, singleMarketWarn ? $style.summaryWarn : '']">
-        {{ singleMarketHint }}
-      </span>
+        <input
+          id="cbu-split-market"
+          v-model="splitMarketMode"
+          name="cbu-split-market"
+          type="checkbox" />
+        <span :class="$style.controlLabel">分市场购买</span>
+      </label>
       <label :class="$style.control">
         <input
           id="cbu-transfer-ship"
@@ -572,8 +536,59 @@ function isBest(component: { bestExchange?: string }, code: string) {
           <template v-if="priceProgress && priceProgress.done < priceProgress.total">
             正在读取游戏实时盘口 {{ priceProgress.done }}/{{ priceProgress.total }}
           </template>
-          <template v-else>价格来自游戏实时盘口 CXOB</template>
+          <template v-else-if="splitMarketMode"
+            >卡片仅供比价 · 当前按各物品最优价分市场采购</template
+          >
+          <template v-else>点击卡片指定单市场 · 当前 {{ chosenSingleExchange || '无' }}</template>
         </span>
+      </div>
+
+      <!-- 交易所卡片紧跟汇总栏：默认选中最优单市场，点击卡片可指定任意市场；
+           勾选「分市场购买」后卡片只作比价，ACT 按各物品最优价分组。
+           右上角标「最优」或相对最优的差价，卡片内保留「已指定」标记。 -->
+      <div :class="$style.exchangeTotals">
+        <div
+          v-for="et in totals.exchanges"
+          :key="et.code"
+          :class="[
+            $style.exchangeCard,
+            totals.cheapestSingle && totals.cheapestSingle.code === et.code
+              ? $style.exchangeCardBest
+              : '',
+            !et.complete ? $style.exchangeCardIncomplete : '',
+            singleMarketMode && chosenSingleExchange === et.code ? $style.exchangeCardChosen : '',
+            $style.exchangeCardClickable,
+          ]"
+          :title="
+            splitMarketMode
+              ? '当前为分市场购买；点击卡片即切回该交易所单市场购买'
+              : chosenSingleExchange === et.code
+                ? '当前选中；再点一次或勾选「分市场购买」可改为按最优价分市场购买'
+                : '点击选定该交易所为单市场购买的市场'
+          "
+          @click="pickExchange(et.code)">
+          <span
+            v-if="exchangeBadge(et)"
+            :class="[
+              $style.exchangeBadge,
+              exchangeBadge(et)?.kind === 'best' ? $style.exchangeBadgeBest : '',
+              exchangeBadge(et)?.kind === 'warn' ? $style.exchangeBadgeWarn : '',
+            ]">
+            {{ exchangeBadge(et)?.text }}
+          </span>
+          <div :class="$style.exchangeCardHead">
+            <strong>{{ et.code }}</strong>
+            <span :class="$style.exchangeCurrency">{{ et.currency }}</span>
+          </div>
+          <div :class="$style.exchangeTotal">{{ fixed0(et.total) }}</div>
+          <div :class="$style.exchangeMeta">
+            <span v-if="et.complete" :class="$style.completeTag">凑齐</span>
+            <span v-else :class="$style.incompleteTag">缺 {{ et.missing }} 种</span>
+            <span v-if="singleMarketMode && forcedExchange === et.code" :class="$style.chosenTag">
+              已指定
+            </span>
+          </div>
+        </div>
       </div>
 
       <div :class="$style.tableWrap">
@@ -672,36 +687,6 @@ function isBest(component: { bestExchange?: string }, code: string) {
           </tbody>
         </table>
       </div>
-
-      <div :class="$style.exchangeTotals">
-        <div
-          v-for="et in totals.exchanges"
-          :key="et.code"
-          :class="[
-            $style.exchangeCard,
-            totals.cheapestSingle && totals.cheapestSingle.code === et.code
-              ? $style.exchangeCardBest
-              : '',
-            !et.complete ? $style.exchangeCardIncomplete : '',
-            singleMarketMode && forcedExchange === et.code ? $style.exchangeCardChosen : '',
-            $style.exchangeCardClickable,
-          ]"
-          title="点击指定该交易所为单市场购买的市场；再点一次恢复自动"
-          @click="pickExchange(et.code)">
-          <div :class="$style.exchangeCardHead">
-            <strong>{{ et.code }}</strong>
-            <span :class="$style.exchangeCurrency">{{ et.currency }}</span>
-            <span v-if="singleMarketMode && forcedExchange === et.code" :class="$style.chosenTag">
-              已指定
-            </span>
-          </div>
-          <div :class="$style.exchangeTotal">{{ fixed0(et.total) }}</div>
-          <div :class="$style.exchangeMeta">
-            <span v-if="et.complete" :class="$style.completeTag">凑齐</span>
-            <span v-else :class="$style.incompleteTag">缺 {{ et.missing }} 种</span>
-          </div>
-        </div>
-      </div>
     </template>
   </div>
 </template>
@@ -724,12 +709,6 @@ function isBest(component: { bestExchange?: string }, code: string) {
   white-space: nowrap;
 }
 
-/* 只在警告态渲染，颜色由后面的 .summaryWarn 给红色；nowrap 防止撑乱表头 */
-.singleMarketHint {
-  font-size: 11px;
-  white-space: nowrap;
-}
-
 .cartMeta {
   color: rgb(148, 158, 166);
   font-size: 12px;
@@ -737,7 +716,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .cartMeta strong {
-  color: rgb(255, 176, 0);
+  color: rgb(var(--rp-accent-rgb));
 }
 
 .input {
@@ -752,8 +731,8 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .input:focus {
-  border-color: rgb(255, 176, 0);
-  box-shadow: inset 0 0 0 1px rgb(255, 176, 0);
+  border-color: rgb(var(--rp-accent-rgb));
+  box-shadow: inset 0 0 0 1px rgb(var(--rp-accent-rgb));
   background: rgb(30, 38, 44);
 }
 
@@ -767,6 +746,20 @@ function isBest(component: { bestExchange?: string }, code: string) {
   gap: 4px;
 }
 
+/* 控件栏在最顶部，游戏原生 tooltip 的 z-index 只有 50，往上弹会被标题栏 /
+   汇总栏盖住。这里统一下压为向下弹（见模板的 data-tooltip-position="bottom"），
+   并抬高浮层层级，保证「分市场购买」「导入到 CONTGEN」的说明完整可读。 */
+.controls [data-tooltip]::before,
+.controls [data-tooltip]::after {
+  z-index: 200 !important;
+}
+
+.controls [data-tooltip]::before {
+  white-space: normal;
+  max-width: 260px;
+  line-height: 1.35;
+}
+
 .summaryBar {
   display: flex;
   flex-wrap: wrap;
@@ -775,7 +768,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
   padding: 6px 8px;
   margin-bottom: 6px;
   border: 1px solid rgb(61, 74, 84);
-  background: rgba(255, 176, 0, 0.06);
+  background: rgba(var(--rp-accent-rgb), 0.06);
   border-radius: 4px;
 }
 
@@ -785,7 +778,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .summaryItem strong {
-  color: rgb(255, 176, 0);
+  color: rgb(var(--rp-accent-rgb));
   font-size: 13px;
   padding: 0 2px;
 }
@@ -845,7 +838,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .checkCol input {
   cursor: pointer;
-  accent-color: rgb(255, 176, 0);
+  accent-color: rgb(var(--rp-accent-rgb));
 }
 
 .checkCell {
@@ -856,7 +849,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .checkCell input {
   cursor: pointer;
-  accent-color: rgb(255, 176, 0);
+  accent-color: rgb(var(--rp-accent-rgb));
 }
 
 .materialCol {
@@ -979,10 +972,11 @@ function isBest(component: { bestExchange?: string }, code: string) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 6px;
-  margin-top: 8px;
+  margin: 2px 0 8px;
 }
 
 .exchangeCard {
+  position: relative;
   padding: 6px 8px;
   border: 1px solid rgb(61, 74, 84);
   border-radius: 4px;
@@ -1004,13 +998,32 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .exchangeCardChosen {
-  border-color: rgb(255, 176, 0);
-  background: rgba(255, 176, 0, 0.1);
+  border-color: rgb(var(--rp-accent-rgb));
+  background: rgba(var(--rp-accent-rgb), 0.1);
+}
+
+/* 右上角角标：最优市场标绿色「最优」，其余标橙色差价，缺报价标红色 */
+.exchangeBadge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  color: rgb(var(--rp-accent-rgb));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.exchangeBadgeBest {
+  color: rgb(126, 217, 87);
+}
+
+.exchangeBadgeWarn {
+  color: rgb(229, 115, 115);
 }
 
 .chosenTag {
   margin-left: auto;
-  color: rgb(255, 176, 0);
+  color: rgb(var(--rp-accent-rgb));
   font-size: 11px;
 }
 
@@ -1021,7 +1034,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .exchangeCardHead strong {
-  color: rgb(255, 176, 0);
+  color: rgb(var(--rp-accent-rgb));
 }
 
 .exchangeCurrency {
@@ -1037,6 +1050,9 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .exchangeMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 2px;
   font-size: 11px;
 }

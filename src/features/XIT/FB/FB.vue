@@ -731,13 +731,19 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
 </script>
 
 <template>
-  <div ref="rootElement" :class="$style.layout">
+  <!-- data-rp-fb-panel 是「XIT FB 面板」的稳定作用域标记：全局 CSS 里的
+       INV 紧凑排列规则与「紧凑排列」按钮只在带此标记的元素内部生效，
+       用户单独打开的 INV / SHPI 窗口保持游戏原版排列与图标大小。 -->
+  <div ref="rootElement" :class="$style.layout" data-rp-fb-panel>
     <div :class="$style.fleet">
       <FLEET compact-ship />
     </div>
     <div :class="$style.middle">
       <div ref="bsHost" :class="$style.slot" data-fb-slot="bs" />
-      <div ref="invHost" :class="[$style.slot, $style.invSlot]" data-fb-slot="inv" />
+      <div
+        ref="invHost"
+        :class="[$style.slot, $style.mainInvSlot]"
+        data-fb-slot="inv" />
       <div ref="burnHost" :class="$style.slot" data-fb-slot="burn" />
     </div>
     <div :class="$style.right">
@@ -750,7 +756,6 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
           :data-fb-slot="`ship${i - 1}`"
           :class="[
             $style.slot,
-            $style.invSlot,
             $style.shipSlot,
             shipEntries[i - 1]?.status === 'inbound' ? $style.statusInbound : $style.statusDocked,
             { [$style.slotHidden]: !shipEntries[i - 1] },
@@ -924,47 +929,19 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
   display: none !important;
 }
 
-/* 内嵌 INV / SHPI 的货物图标：游戏原生是 48px 图标 / 64px 格子，在 FB 里太占位置。
-   这里整体缩到 32px（格子 42px），仍保留 ticker、数量角标和拖拽。
-   只作用于 FB 的 INV / 舰船货舱槽位，用户自己开的 INV/SHPI 窗口保持原生尺寸。
-   想换档位只改 --fb-inv-icon-size：24 / 28 / 32 / 36 都实测过，字号会按比例同步。 */
-.invSlot {
-  --fb-inv-icon-size: 32px;
-}
+/* 内嵌 INV / SHPI 的图标尺寸不再由 FB 单独缩小：默认必须保持游戏原版 48px。
+   紧凑模式下的 32px 图标、42px 格子和竖排分组，统一由 refined-prun.css 中带
+   html[data-rp-inv-compact='on'] [data-rp-fb-panel] 双前缀的全局规则提供；
+   紧凑排列及其按钮只作用于 XIT FB 面板内部，独立 INV / SHPI 窗口始终是原版。 */
 
-.invSlot [class*='GridItemView__container'] {
-  width: calc(var(--fb-inv-icon-size) + 10px) !important;
-  margin: 2px !important;
-  padding: 1px !important;
-}
-
-.invSlot [class*='GridItemView__image'] {
-  width: var(--fb-inv-icon-size) !important;
-  height: var(--fb-inv-icon-size) !important;
-  margin: 1px auto !important;
-}
-
-/* 这两个尺寸是游戏写在元素 style 属性里的，必须 !important 才能覆盖 */
-.invSlot [class*='MaterialIcon__container'],
-.invSlot [class*='ColoredIcon__container'] {
-  width: var(--fb-inv-icon-size) !important;
-  height: var(--fb-inv-icon-size) !important;
-}
-
-/* ticker 字号原生为 15.84px = 48 * 0.33，按比例同步缩小 */
-.invSlot [class*='ColoredIcon__container'] {
-  font-size: calc(var(--fb-inv-icon-size) * 0.33) !important;
-}
-
-/* 窄格子里的长物品名称改为单行省略，否则会把行高撑成两三行 */
-.invSlot [class*='GridItemView__name'] {
-  display: block;
-  font-size: 9px;
-  line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: center;
+/* ── 主 INV 槽布局 ──────────────────────────────────────────────────
+   .slot.mainInvSlot 是 FB 组件自己的局部类，本就只存在于 XIT FB 面板内，
+   再显式加 [data-rp-fb-panel] 前缀与 refined-prun.css 的作用域保持一致。
+   下面这条高度分配只在紧凑模式下生效：紧凑后内容只需约 160px，按三槽均分
+   （292px）会在下方留一大片空白，收掉约 40px 让给 BS / BURN。
+   默认（原版排列）保持三槽均分不动。 */
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] .slot.mainInvSlot {
+  flex: 0.8 1 0;
 }
 
 /* 滚动条统一成游戏内的细条样式（CSS Modules 里不能写 :global，直接挂类名后代） */

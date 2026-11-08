@@ -48,7 +48,7 @@ import './cxpo-bigger-buttons';
 
 import './cxpo-order-book/cxpo-order-book';
 import './cxpo-quick-price';
-import './dark-mode';
+import './theme';
 import './exp-expert-eta';
 import './expand-sidebar-contract-list';
 import './finla-more-columns';
@@ -65,6 +65,7 @@ import './hide-inactive-close-button';
 import './highlight-own-exchange-orders';
 import './highlight-production-order-error';
 import './input-math';
+import './inv-compact-layout';
 import './inv-compress-inventory-info';
 import './inv-custom-item-sorting/inv-custom-item-sorting';
 import './inv-item-markers/inv-item-markers';

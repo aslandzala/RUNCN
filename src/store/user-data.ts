@@ -92,13 +92,9 @@ export const initialUserData = deepFreeze({
       translatedColor: '#28a745',
       showOriginal: false,
     } as UserData.TranslationSettings,
-    darkMode: {
-      enabled: false,
-      brightness: 100,
-      contrast: 100,
-      sepia: 0,
-      grayscale: 0,
-    } as UserData.DarkModeSettings,
+    theme: 'default' as UserData.ThemeId,
+    // INV / SHPI 紧凑排列开关：默认原版，点击窗口右上按钮才开启，刷新后保持。
+    invCompact: false,
   },
   sorting: {} as Record<string, UserData.StoreSortingData>,
   balanceHistory: {

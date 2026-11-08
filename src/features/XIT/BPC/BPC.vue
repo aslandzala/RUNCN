@@ -532,8 +532,8 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .input:focus {
-  border-color: rgb(255, 176, 0);
-  box-shadow: inset 0 0 0 1px rgb(255, 176, 0);
+  border-color: rgb(var(--rp-accent-rgb));
+  box-shadow: inset 0 0 0 1px rgb(var(--rp-accent-rgb));
   background: rgb(30, 38, 44);
 }
 
@@ -552,8 +552,8 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .select:focus {
-  border-color: rgb(255, 176, 0);
-  box-shadow: inset 0 0 0 1px rgb(255, 176, 0);
+  border-color: rgb(var(--rp-accent-rgb));
+  box-shadow: inset 0 0 0 1px rgb(var(--rp-accent-rgb));
   background: rgb(30, 38, 44);
 }
 
@@ -576,7 +576,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
   padding: 6px 8px;
   margin-bottom: 6px;
   border: 1px solid rgb(61, 74, 84);
-  background: rgba(255, 176, 0, 0.06);
+  background: rgba(var(--rp-accent-rgb), 0.06);
   border-radius: 4px;
 }
 
@@ -586,7 +586,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .summaryItem strong {
-  color: rgb(255, 176, 0);
+  color: rgb(var(--rp-accent-rgb));
   font-size: 13px;
   padding: 0 2px;
 }
@@ -647,7 +647,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .checkCol input {
   cursor: pointer;
-  accent-color: rgb(255, 176, 0);
+  accent-color: rgb(var(--rp-accent-rgb));
 }
 
 .checkCell {
@@ -658,7 +658,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .checkCell input {
   cursor: pointer;
-  accent-color: rgb(255, 176, 0);
+  accent-color: rgb(var(--rp-accent-rgb));
 }
 
 .materialCol {
@@ -797,7 +797,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 }
 
 .exchangeCardHead strong {
-  color: rgb(255, 176, 0);
+  color: rgb(var(--rp-accent-rgb));
 }
 
 .exchangeCurrency {
