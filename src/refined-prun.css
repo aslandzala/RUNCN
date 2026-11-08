@@ -154,8 +154,13 @@ html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-comma
   font-size: calc(var(--rp-inv-icon-size) * 0.33) !important;
 }
 
+/* 只排版名字，不碰 display：显隐完全交还原插件的 hide-item-names 功能。
+   该功能的规则是 .refined-prun .GridItemView__name { display:none }（无
+   !important），而下面这条带 html[attr] + [data-rp-fb-panel] + :is() 的
+   选择器特异性高得多；以前这里写 display:block 会把它压掉，导致紧凑模式下
+   关掉名字无效（非紧凑模式没有覆盖所以正常）。去掉后两种排版都受同一开关控制，
+   未开启时由 prun-bugs 的 .gridItemName 保持 display:block。 */
 html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='GridItemView__name'] {
-  display: block;
   font-size: 9px;
   line-height: 1.1;
   white-space: nowrap;

@@ -652,18 +652,28 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
 }
 
 /* ── 统计栏 ── */
+/* 统计栏回到基准字号且不压透明度：原先 0.9em(≈9.9px) 再叠 0.85 透明，
+   浅色主题下数字又小又淡。强调数字的颜色由不带字面量的变量保证。 */
 .summaryBar {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   padding: 4px 8px;
-  opacity: 0.85;
-  font-size: 0.9em;
+  font-size: 1em;
 }
 
+/* 强调文字（统计数字 / 材料名 / 排名）不能用 --rp-color-accent-primary：
+   主题引擎会把 refined-prun.css 里 html{--rp-color-accent-primary:#ffc856}
+   连变量定义一起重映射，自定义主题下它变成 #e7eef4 近白色，浅底上对比度
+   只有约 1.0，几乎看不见。改用 --rp-skin-selection（light 深石板蓝 #33566f、
+   暖米纸深棕 #9b6b2f，主题引擎不会重刷这组变量）；default「原样」主题没有
+   这组变量，回退到原来的琥珀黄，仍是深底亮字。整条声明只写 var()、不含颜色
+   字面量，主题引擎的 COLOR_RE 扫描会跳过，不会被二次改写。 */
 .summaryBar b {
-  color: var(--rp-color-accent-primary, #ffc856);
+  color: var(--rp-skin-selection, var(--rp-color-accent-primary));
 }
+
+/* 以下两处（材料名链接、排名）同理，只引用变量、不写颜色字面量。 */
 
 /* ── 筛选栏 ── */
 .filterBar {
@@ -687,8 +697,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
 }
 
 .filterLabel {
-  font-size: 0.85em;
-  opacity: 0.7;
+  font-size: 1em;
 }
 
 .select {
@@ -696,7 +705,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
   color: #ccc;
   border: 1px solid #2b485a;
   padding: 2px 6px;
-  font-size: 0.85em;
+  font-size: 1em;
 }
 
 .searchInput {
@@ -704,7 +713,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
   color: #ccc;
   border: 1px solid #2b485a;
   padding: 2px 6px;
-  font-size: 0.85em;
+  font-size: 1em;
   width: 90px;
 }
 
@@ -717,7 +726,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
 
 .tickerLink {
   cursor: pointer;
-  color: var(--rp-color-accent-primary, #ffc856);
+  color: var(--rp-skin-selection, var(--rp-color-accent-primary));
 }
 
 .tickerLink:hover {
@@ -729,7 +738,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 0.85em;
+  font-size: 1em;
   white-space: nowrap;
 }
 
@@ -754,7 +763,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
 }
 
 .rankCell {
-  color: var(--rp-color-accent-primary, #ffc856);
+  color: var(--rp-skin-selection, var(--rp-color-accent-primary));
   font-weight: bold;
 }
 
@@ -773,7 +782,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
 
 .status-filled {
   color: #5cb85c;
-  opacity: 0.6;
+  opacity: 0.85;
 }
 
 /* ── 类型 ── */
@@ -787,9 +796,9 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
   white-space: nowrap;
 }
 
-/* ── 已成交行 ── */
+/* ── 已成交行：0.5 太淡连状态字都看不清，只保留轻微退后感 ── */
 .filledRow {
-  opacity: 0.5;
+  opacity: 0.75;
 }
 
 /* ── 操作 ── */
@@ -846,7 +855,7 @@ async function runPriceCut(target: Element, order: OrderWithRank, targetPrice: n
 /* ── 空状态 ── */
 .empty {
   text-align: center;
-  opacity: 0.5;
+  opacity: 0.8;
   padding: 12px;
 }
 </style>
