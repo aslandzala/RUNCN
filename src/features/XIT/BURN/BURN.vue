@@ -176,7 +176,7 @@ function onTrialClick() {
 <template>
   <LoadingSpinner v-if="planetBurn === undefined" />
   <template v-else>
-    <div :class="C.ComExOrdersPanel.filter">
+    <div :class="[C.ComExOrdersPanel.filter, $style.burnFilter]">
       <RadioItem v-model="red" horizontal>红色</RadioItem>
       <RadioItem v-model="yellow" horizontal>黄色</RadioItem>
       <RadioItem v-model="green" horizontal>绿色</RadioItem>
@@ -252,6 +252,14 @@ function onTrialClick() {
 </template>
 
 <style module>
+/* 游戏自定义垂直滚动条轨道（ScrollView__track-vertical，6px、z-index:2）会浮在
+   内容右侧，正好压住被 .spacer 推到最右的「比价」按钮右边缘。给工具栏留出
+   比原生 5px 更宽的右侧内边距，把整个按钮推到轨道左侧。 */
+.burnFilter {
+  padding-right: 16px !important;
+  box-sizing: border-box;
+}
+
 .fakeRow {
   visibility: collapse;
 }

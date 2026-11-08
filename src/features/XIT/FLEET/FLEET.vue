@@ -86,12 +86,13 @@ const autoUnloadTrigger = useTileState<boolean>('autoUnloadTrigger', true);
 // 自动发船：在每个 OPEN SFC 步骤后追加 DEPART，执行时自动点击「开始」。
 const autoLaunch = useTileState<boolean>('autoLaunch', false);
 
-// Column visibility
-const showBurn = useTileState('showBurn', true);
+// Column visibility。「消耗」列常驻且可排序，因此不提供开关；
+// 「维修」开关同时控制 维修 / 维护 / 提前 三列。
 const showProd = useTileState('showProd', true);
 const showRepair = useTileState('showRepair', true);
 const showInv = useTileState('showInv', true);
 const showWar = useTileState('showWar', true);
+const showFill = useTileState('showFill', true);
 
 // Sort：只有「消耗」列可排序（按剩余天数），点表头切换升/降序。
 // 「维护」列是普通表头，不再有排序按钮，也不参与排序。
@@ -782,28 +783,62 @@ async function importDispatchConfig() {
 
 <template>
   <div :class="$style.layout">
-    <!-- Mode toggle -->
+    <!-- 顶部工具栏分两行：第一行是视图模式、列开关与操作按钮（右上按钮位置不变）；
+         第二行放交易所筛选与发船 / 卸货开关。 -->
     <div :class="[C.ComExOrdersPanel.filter, $style.filterBar]">
-      <RadioItem
-        :model-value="viewMode === 'plan'"
-        horizontal
-        @update:model-value="viewMode = 'plan'">
-        基地规划
-      </RadioItem>
-      <RadioItem
-        :model-value="viewMode === 'inventory'"
-        horizontal
-        @update:model-value="viewMode = 'inventory'">
-        库存总览
-      </RadioItem>
-      <RadioItem
-        :model-value="viewMode === 'chain'"
-        horizontal
-        @update:model-value="viewMode = 'chain'">
-        产业链环线
-      </RadioItem>
-      <div :class="$style.separator" />
-      <template v-if="viewMode === 'plan'">
+      <div :class="$style.filterRow">
+        <RadioItem
+          :model-value="viewMode === 'plan'"
+          horizontal
+          @update:model-value="viewMode = 'plan'">
+          基地规划
+        </RadioItem>
+        <RadioItem
+          :model-value="viewMode === 'inventory'"
+          horizontal
+          @update:model-value="viewMode = 'inventory'">
+          库存总览
+        </RadioItem>
+        <RadioItem
+          :model-value="viewMode === 'chain'"
+          horizontal
+          @update:model-value="viewMode = 'chain'">
+          产业链环线
+        </RadioItem>
+        <template v-if="viewMode === 'plan'">
+          <div :class="$style.separator" />
+          <RadioItem v-model="showProd" horizontal>生产</RadioItem>
+          <RadioItem v-model="showRepair" horizontal>维修</RadioItem>
+          <RadioItem v-model="showInv" horizontal>库存</RadioItem>
+          <RadioItem v-model="showWar" horizontal>仓储</RadioItem>
+          <RadioItem v-model="showFill" horizontal>填满</RadioItem>
+          <div :class="$style.searchContainer">
+            <TextInput v-model="planetFilter" />
+            <PrunButton
+              v-if="planetFilter"
+              dark
+              :class="[fa.solid, $style.clearButton]"
+              @click="planetFilter = ''">
+              {{ '' }}
+            </PrunButton>
+          </div>
+          <PrunButton dark @click="exportDispatchConfig">导出配置</PrunButton>
+          <PrunButton dark @click="importDispatchConfig">导入配置</PrunButton>
+          <span v-if="notice" :class="$style.notice">{{ notice }}</span>
+          <div :class="$style.spacer" />
+          <PrunButton dark @click="reset">重置</PrunButton>
+          <Tooltip v-if="executeTooltip" position="top" :tooltip="executeTooltip" no-icon>
+            <PrunButton primary :disabled="overloadedShips.size > 0" @click="execute">
+              执行
+            </PrunButton>
+          </Tooltip>
+          <PrunButton v-else primary :disabled="overloadedShips.size > 0" @click="execute">
+            执行
+          </PrunButton>
+        </template>
+      </div>
+      <div v-if="viewMode === 'plan'" :class="$style.filterRow">
+        <span :class="$style.rowLabel">出发CX：</span>
         <RadioItem
           v-for="option in exchangeFilterOptions"
           :key="option.code"
@@ -813,39 +848,11 @@ async function importDispatchConfig() {
           {{ option.label }}
         </RadioItem>
         <div :class="$style.separator" />
+        <!-- 自动发船 / 到港卸货 属同一组，中间不放分隔线，
+             只沿用 .filterRow 的 3px gap，与第一行同组选项一致。 -->
         <RadioItem v-model="autoLaunch" horizontal>自动发船</RadioItem>
-        <div :class="$style.separator" />
         <RadioItem v-model="autoUnloadTrigger" horizontal>到港卸货</RadioItem>
-        <div :class="$style.separator" />
-        <RadioItem v-model="showBurn" horizontal>消耗</RadioItem>
-        <RadioItem v-model="showProd" horizontal>生产</RadioItem>
-        <RadioItem v-model="showRepair" horizontal>维修</RadioItem>
-        <RadioItem v-model="showInv" horizontal>库存</RadioItem>
-        <RadioItem v-model="showWar" horizontal>仓储</RadioItem>
-        <div :class="$style.searchContainer">
-          <TextInput v-model="planetFilter" />
-          <PrunButton
-            v-if="planetFilter"
-            dark
-            :class="[fa.solid, $style.clearButton]"
-            @click="planetFilter = ''">
-            {{ '' }}
-          </PrunButton>
-        </div>
-        <PrunButton dark @click="exportDispatchConfig">导出配置</PrunButton>
-        <PrunButton dark @click="importDispatchConfig">导入配置</PrunButton>
-        <span v-if="notice" :class="$style.notice">{{ notice }}</span>
-        <div :class="$style.spacer" />
-        <PrunButton dark @click="reset">重置</PrunButton>
-        <Tooltip v-if="executeTooltip" position="top" :tooltip="executeTooltip" no-icon>
-          <PrunButton primary :disabled="overloadedShips.size > 0" @click="execute">
-            执行
-          </PrunButton>
-        </Tooltip>
-        <PrunButton v-else primary :disabled="overloadedShips.size > 0" @click="execute">
-          执行
-        </PrunButton>
-      </template>
+      </div>
     </div>
 
     <!-- Inventory mode -->
@@ -877,12 +884,12 @@ async function importDispatchConfig() {
                 <th v-if="showProd" :class="[$style.narrowCol, $style.centered]">生产</th>
                 <th v-if="showRepair" :class="[$style.narrowCol, $style.centered]">维修</th>
                 <th v-if="showRepair" :class="[$style.narrowCol, $style.centered]">维护</th>
-                <th :class="[$style.narrowCol, $style.centered]">提前</th>
+                <th v-if="showRepair" :class="[$style.narrowCol, $style.centered]">提前</th>
                 <th :class="[$style.narrowCol, $style.centered]">装载</th>
                 <th :class="[$style.narrowCol, $style.centered]">物资</th>
                 <th :class="[$style.narrowCol, $style.centered]">适配</th>
                 <th :class="[$style.narrowCol, $style.centered]">CX</th>
-                <th :class="[$style.narrowCol, $style.centered]">填满</th>
+                <th v-if="showFill" :class="[$style.narrowCol, $style.centered]">填满</th>
                 <th v-if="showInv" :class="$style.invHeaderCol">库存</th>
                 <th v-if="showWar" :class="$style.warHeaderCol">仓储</th>
               </tr>
@@ -902,6 +909,7 @@ async function importDispatchConfig() {
                   :show-repair="showRepair"
                   :show-inv="showInv"
                   :show-war="showWar"
+                  :show-fill="showFill"
                   :overloaded="
                     !!rowById.get(id)!.config.ship &&
                     overloadedShips.has(rowById.get(id)!.config.ship!)
@@ -932,8 +940,33 @@ async function importDispatchConfig() {
   flex: 1;
 }
 
+/* 顶部工具栏固定两行；右上「重置 / 执行」仍由 .spacer 推在第一行最右。 */
 .filterBar {
-  flex-wrap: wrap;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.filterRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 第二行交易所组的说明文字。字号与 RadioItem 对齐（全局 11px），
+   颜色不写死、继承工具栏文字色，三套主题与原样主题都能自动跟随。 */
+.rowLabel {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  margin-right: 4px;
 }
 
 .separator {

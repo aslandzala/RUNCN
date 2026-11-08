@@ -44,6 +44,37 @@ export function normalizeDispatchBaseConfigs(configs: Record<string, any>) {
 // 日期仅供参考，不影响迁移顺序。
 const migrations: MigrationEntry[] = [
   [
+    '08.11.2026 Add BLU hidden blueprints settings',
+    userData => {
+      // 存量数据没有这两个字段：默认不隐藏任何蓝图、不显示隐藏项，
+      // 保证升级后清单仍是完整的，只有玩家主动点眼睛才改变。
+      const settings = userData.settings;
+      if (!settings) {
+        return;
+      }
+      if (!Array.isArray(settings.hiddenBlueprints)) {
+        settings.hiddenBlueprints = [];
+      }
+      settings.showHiddenBlueprints ??= false;
+    },
+  ],
+  [
+    '08.11.2026 Add BSN products auto-load toggle',
+    userData => {
+      // 存量数据没有该字段，回填关闭：自动搬库存属于有副作用的行为，
+      // 绝不因为升级就默认替玩家执行。
+      const settings = userData.settings;
+      if (!settings) {
+        return;
+      }
+      if (!settings.autoLoadProducts || typeof settings.autoLoadProducts !== 'object') {
+        settings.autoLoadProducts = { enabled: false };
+      } else if (settings.autoLoadProducts.enabled === undefined) {
+        settings.autoLoadProducts.enabled = false;
+      }
+    },
+  ],
+  [
     '08.11.2026 Remove mint theme',
     userData => {
       // 青蓝清爽主题已移除；存量设置回退到同为浅色的「浅色明亮」，避免主题失效。

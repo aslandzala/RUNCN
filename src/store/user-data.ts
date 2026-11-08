@@ -68,6 +68,11 @@ export const initialUserData = deepFreeze({
     refuel: {
       enabled: false,
     },
+    // BSN 产物自动装船：默认关闭。开启后基地有船停靠时会静默搬走产物，
+    // 属于会改变库存的自动化，必须用户显式打开。
+    autoLoadProducts: {
+      enabled: false,
+    },
     triggers: {
       autoEnabled: false,
     },
@@ -95,6 +100,10 @@ export const initialUserData = deepFreeze({
     theme: 'default' as UserData.ThemeId,
     // INV / SHPI 紧凑排列开关：默认原版，点击窗口右上按钮才开启，刷新后保持。
     invCompact: false,
+    // BLU：被隐藏的造船蓝图（存蓝图 naturalId，取不到时存 id）与
+    // 「是否显示隐藏蓝图」开关。显隐固定持久化，只有手动点按钮才改变。
+    hiddenBlueprints: [] as string[],
+    showHiddenBlueprints: false,
   },
   sorting: {} as Record<string, UserData.StoreSortingData>,
   balanceHistory: {

@@ -8,6 +8,23 @@ html {
   --rp-color-accent-primary: #ffc856;
   /* 插件强调色统一入口。浅色主题下由 theme.ts 覆盖成低饱和石板蓝。 */
   --rp-accent-rgb: 255, 176, 0;
+  /* INV BRN 分类名的半透明蓝底（独立 INV / FB 普通排版 / FB 紧凑排版三处共用）。
+     颜色与深浅都抽成变量，三处规则只引用、不各写一份，改一处即全局同步。
+     存成纯 RGB 三元组 / 纯数字：主题引擎只扫描 # / rgb() 之类的颜色字面量，
+     不会被二次重映射，蓝色在浅色与暖色主题下都保持一致。
+     用户要求色条深浅再减半：0.26 → 0.13、0.5 → 0.25。 */
+  --rp-inv-cat-bg-rgb: 51, 86, 111;
+  --rp-inv-cat-bg-alpha: 0.13;
+  --rp-inv-cat-line-alpha: 0.25;
+  /* 自定义主题下浮动缓存窗口的深蓝描边。同样用纯 RGB 三元组避开主题引擎重映射，
+     换色只改下面这一行（#193C69）。 */
+  --rp-window-border-rgb: 25, 60, 105;
+}
+
+/* 所有 XIT 面板里的选项按钮（RadioItem）文字统一放大 1 号：10px → 11px。
+   游戏原生 typeSmall 是 10px，主题引擎只改颜色不改字号，这里用 !important 压过。 */
+[class*='RadioItem__value'] {
+  font-size: 11px !important;
 }
 
 @font-face {
@@ -35,9 +52,9 @@ html {
    无论开关是开是关，始终使用游戏原版排列与 48px 图标。
    原生排布是分组头独占一整行 + space-around，会在组末留大片空白；改成竖排
    中文窄标签后物料跨组连续流动，图标、拖拽、排序控件全部保留。
-   图标档位只改 --rp-inv-icon-size：24 / 28 / 32 / 36 均可。 */
+   图标档位只改 --rp-inv-icon-size（当前 34px，按需 ±2px 微调即可）。 */
 html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) {
-  --rp-inv-icon-size: 32px;
+  --rp-inv-icon-size: 34px;
 }
 
 html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='InventoryView__grid'] {
@@ -46,20 +63,26 @@ html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-comma
   margin-bottom: 0 !important;
 }
 
-/* 分组头变竖排书脊标签；原英文文案以 font-size:0 隐去，中文由 ::after 提供。
-   data-label 由 inv-custom-item-sorting/CategoryHeader.vue 透传。 */
+/* 分组头做成「竖排书脊徽标」：原先只有 14px 宽、0.15 透明底、一条淡色左边框
+   和 10px 竖排字，夹在物料图标里几乎认不出是分类。现在换成与独立 INV / FB 普通
+   排版共用的半透明蓝底（--rp-inv-cat-bg-rgb）+ 主题深字粗体竖排中文；四类统一
+   底色、靠文字区分。底色存成纯 RGB 三元组的 var()，主题引擎只扫描 # / rgb()
+   颜色字面量，不会把这层蓝底二次重映射。 */
 html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'] {
   display: flex !important;
   align-items: center;
   justify-content: center;
   align-self: stretch !important;
   width: auto !important;
-  min-width: 0;
+  min-width: 20px;
   height: auto !important;
   min-height: 0;
-  margin: 0 3px 0 0 !important;
-  padding: 2px 1px !important;
-  border-left: 2px solid rgba(var(--rp-accent-rgb), 0.85);
+  margin: 0 4px 0 0 !important;
+  padding: 4px 2px !important;
+  border: 1px solid rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-line-alpha)) !important;
+  border-radius: 3px;
+  background-color: rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-bg-alpha)) !important;
+  background-image: none !important;
   box-sizing: border-box;
   writing-mode: vertical-rl;
   text-orientation: mixed;
@@ -71,9 +94,13 @@ html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-comma
 
 html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container']::after {
   content: attr(data-label);
-  font-size: 10px;
+  color: var(--rp-skin-ink, #26333d) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink, #26333d) !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 2px;
   line-height: 1;
-  letter-spacing: 0;
+  text-shadow: none !important;
 }
 
 html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Consumables']::after {
@@ -88,10 +115,15 @@ html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-comma
   content: '产出';
 }
 
-/* 修掉 Tile 外边距与 ScrollView__view 的 -15px 负边距留下的固定空白。 */
-html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='Tile__tile'] {
-  margin: 0 !important;
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='其他']::after,
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Other']::after {
+  content: '其他';
 }
+
+/* Tile 外边距的清零统一交给 FB.vue 的槽级规则（.slot.mainInvSlot /
+   .slot.fltSlot）：`rp-command-INV` 类加在 TileFrame__frame 上，而 Tile__tile
+   是它的父元素，这里写「命令类的后代 Tile__tile」永远匹配不到，故不再重复。
+   下面只处理 ScrollView__view 的 -15px 负边距留下的固定空白。 */
 
 html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='ScrollView__view'] {
   margin-right: 0 !important;
@@ -132,6 +164,30 @@ html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-comma
   text-align: center;
 }
 
+/* 紧凑小图标里，缩写字母原本居中铺满整个图标，数量角标又绝对定位在右下
+   且带不透明底，正好把字母右半边盖住。让字母整体上移、角标收紧成
+   小角标，分成「上部字母 / 右下数量」两区，互不遮挡。 */
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='ColoredIcon__labelContainer'] {
+  padding-bottom: 11px !important;
+  box-sizing: border-box;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='MaterialIcon__indicator']:not([class*='Container']) {
+  padding: 1px 2px !important;
+  font-size: 9px !important;
+  line-height: 1 !important;
+  border-radius: 2px;
+}
+
+/* 数量角标只留数字，不要外框：物料图标自身已有一圈边框，角标再描一圈会
+   形成「内外框」。主题层已在 html[data-rp-theme] 统一去掉描边（theme.ts），
+   这里在紧凑作用域内再加一道保险，防止游戏原生规则把边框带回来。 */
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='MaterialIcon__indicator'] {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
 /* ── XIT FB 面板内的「紧凑排列」按钮 ──────────────────────────────────
    按钮挂在 TileFrame.frame 上（不在标题栏控件区，FB 会把那块隐藏），绝对定位到
    标题栏下方那一行。游戏的上下文命令行（WAR / UPCK 等）是 flex-end 靠右排，
@@ -151,4 +207,202 @@ html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-comma
 [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) > [class*='ContextControls__container'] {
   padding-right: 72px !important;
   box-sizing: border-box;
+}
+
+/* ── SHPI：窗体内部的文字「卸货」按钮搬到标题栏图标按钮 ─────────────────
+   shpi-header-actions 挂在 TileFrame.header 右侧：FB 面板会把内嵌磁贴的
+   TileFrame.controls 整体隐藏，挂在那里按钮完全不可见；header 在独立窗口和
+   FB 内嵌磁贴里都始终可见，所以两种窗口统一隐藏原文字按钮，不再留例外。
+   原按钮只是 display:none，节点保留，图标按钮仍通过 click() 走游戏原生流程。 */
+.rp-command-SHPI [class*='StoreView__centered'] > button {
+  display: none !important;
+}
+
+/* ── SHPI：卸货 / 起飞图标靠到标题栏最右、原生窗口按键左边 ────────────
+   TileFrame.header 是 display:block，按钮组是 inline-flex，margin-left:auto
+   对块级流里的行内元素无效，所以原先图标紧跟在命令文字后面（离右端约
+   150px）。改成相对 header 绝对定位：独立窗口右端是游戏原生
+   TileControls（约 70.6px 宽），让出 76px 后图标正好贴在它左侧。
+   FB 面板内嵌磁贴的 TileControls 被隐藏，改回贴右边缘 4px。 */
+.rp-command-SHPI [class*='TileFrame__header'] {
+  position: relative;
+}
+
+.rp-command-SHPI [data-rp-ui='shpi-header-actions'] {
+  position: absolute !important;
+  right: 76px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 0 !important;
+  z-index: 2;
+}
+
+[data-rp-fb-panel] .rp-command-SHPI [data-rp-ui='shpi-header-actions'] {
+  right: 4px;
+}
+
+/* ── 可读性：同类界面的行分隔 ───────────────────────────────────────
+   游戏原生给数据行设了 border-bottom 颜色却把宽度置 0，于是
+   SFC 顶部飞船信息 / HQ 总部信息这类「表头多行信息」、HQ 库存分配表、
+   XIT REPD 左侧基地栏全都连成一片。统一补一条 1px 细线：颜色走主题
+   边框变量（浅色 / 暖色各自协调），原样主题回退中性灰蓝；只加深边界，
+   不铺深色底、不改文字。 */
+
+/* 1) SFC / HQ 等窗口顶部的表头多行信息（FormComponent 表单行） */
+[class*='FormComponent__container'] {
+  border-bottom: 1px solid var(--rp-skin-border, rgba(169, 190, 205, 0.45)) !important;
+}
+
+/* 2) 表格数据行：HQ 库存分配、REPD 左侧基地栏、CBUY 等共用同一套原生表 */
+table td {
+  border-bottom: 1px solid var(--rp-skin-border, rgba(169, 190, 205, 0.45)) !important;
+}
+
+/* 3) 上下文菜单命令：原生 item 只有底色、零边框，一串命令像连续文字。
+   只补一圈边框 + 小圆角，不额外加底色（保留主题已有浅底）。 */
+[class*='ContextControls__item'] {
+  border: 1px solid var(--rp-skin-border-strong, rgba(169, 190, 205, 0.65)) !important;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+/* ── 原版 INV 命令窗口：BRN 排序的分组名换成 FB 同款分类名外观 ──────────
+   BRN 排序由 inv-custom-item-sorting 用 CategoryHeader.vue 渲染成
+   SectionHeader__container[data-label]（Outputs / Inputs / Consumables / 其他）。
+   游戏原生只给 0.15 透明底 + 12px 深字，横排独占一行时几乎认不出是分类标题。
+   这里只改「类型名称文字的式样」：换成半透明蓝底 + 细描边圆角 +
+   主题深字粗体中文（投入 / 产出 / 消耗 / 其他），用 font-size:0 隐去英文原文、::after
+   显示中文。容器仍保持 width:100% 横排独占一行，writing-mode、margin、图标尺寸、
+   网格 space-around、排序控件一律不动（用 inset box-shadow 描边，不占盒模型尺寸）。
+   :not([data-rp-fb-panel] *) 排除 XIT FB 面板内的 INV 磁贴——那里由紧凑 / 普通两套
+   规则负责，不叠加。底色用共用 --rp-inv-cat-bg-rgb 纯 RGB var()，不会被主题引擎
+   二次重映射；文字色走 --rp-skin-ink，浅色 / 暖色 / 原样主题自动跟随。 */
+.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label] {
+  background-color: rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-bg-alpha)) !important;
+  background-image: none !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-line-alpha)) !important;
+  border-radius: 3px;
+  justify-content: center;
+  font-size: 0 !important;
+  line-height: 1 !important;
+}
+
+.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label]::after {
+  content: attr(data-label);
+  color: var(--rp-skin-ink, #26333d) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink, #26333d) !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1;
+  text-shadow: none !important;
+}
+
+.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Consumables']::after {
+  content: '消耗';
+}
+
+.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Inputs']::after {
+  content: '投入';
+}
+
+.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Outputs']::after {
+  content: '产出';
+}
+
+.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='其他']::after,
+.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Other']::after {
+  content: '其他';
+}
+
+/* ── XIT FB 面板内的 INV/SHPI：普通排版的 BRN 分类名 ──────────────────
+   上面 267 行那组带 :not([data-rp-fb-panel] *) 只覆盖独立窗口，紧凑模式另有
+   竖徽标规则，中间的「FB 面板 + 普通排版」一直还是游戏原生淡底英文。这里补上
+   与独立 INV 完全一致的中文横排式样（font-size:0 + ::after），容器保持横排
+   独占一行、图标尺寸与网格排布一律不动；底色同样用共用的半透明蓝。
+   三套分类名（独立 / FB 普通 / FB 紧凑）因此只有底色统一，文字仍各按排版走。
+   FB 面板把内嵌滚动条收窄到 4px，网格比独立窗口宽约 11px，色条右端会伸到
+   z-index:2 的 ScrollView__track-vertical 底下被盖住（独立窗口网格天然短 10px，
+   没有此问题）。这里给色条让出 12px 右边距，右端停在轨道左侧约 3px，
+   与独立 INV 的观感一致；紧凑模式的 20px 竖徽标不走这条规则。 */
+html[data-rp-inv-compact='off'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label] {
+  margin-right: 12px !important;
+  background-color: rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-bg-alpha)) !important;
+  background-image: none !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-line-alpha)) !important;
+  border-radius: 3px;
+  justify-content: center;
+  font-size: 0 !important;
+  line-height: 1 !important;
+}
+
+html[data-rp-inv-compact='off'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label]::after {
+  content: attr(data-label);
+  color: var(--rp-skin-ink, #26333d) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink, #26333d) !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1;
+  text-shadow: none !important;
+}
+
+html[data-rp-inv-compact='off'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Consumables']::after {
+  content: '消耗';
+}
+
+html[data-rp-inv-compact='off'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Inputs']::after {
+  content: '投入';
+}
+
+html[data-rp-inv-compact='off'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Outputs']::after {
+  content: '产出';
+}
+
+html[data-rp-inv-compact='off'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='其他']::after,
+html[data-rp-inv-compact='off'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Other']::after {
+  content: '其他';
+}
+
+/* ── 自定义主题（浅色明亮 / 暖米纸）下的浮动缓存窗口边界 ──────────────
+   theme.ts 会把游戏原生窗口边框的颜色重映射成接近浅底的浅色，新建的缓存窗口
+   和点按钮弹出的窗口因此容易和背景融为一体。default「原样」主题会 delete
+   dataset.rpTheme，所以下面规则只在自定义主题下生效。
+   用 box-shadow 而不是 border：窗口宽高由游戏 inline style 精确控制，border
+   会占盒模型尺寸、可能把内容挤出滚动条。颜色只写 var() 且不带 # 回退，
+   避免被主题引擎的 COLOR_RE 扫描二次改写。
+   用户反馈原先的主题石板蓝描边仍不突出，先改成橙色、后又定为深蓝
+   （--rp-window-border-rgb）；内圈 2px / 外圈 5px 的结构保持不变。
+   颜色是纯 RGB 三元组变量，主题引擎只会跳过无法解析的 var()，
+   三套主题下都是同一个深蓝。
+   只匹配浮动窗口外壳 Window__window；底栏 Dock 项与 FB 面板内嵌磁贴
+   （TileFrame__frame）都不带这个类名，不会被误伤。 */
+html[data-rp-theme] [class*='Window__window'] {
+  box-shadow:
+    0 0 0 2px rgb(var(--rp-window-border-rgb)),
+    0 0 0 5px var(--rp-skin-panel) !important;
+}
+
+html[data-rp-theme] [class*='Window__header'] {
+  box-shadow: inset 0 -2px 0 0 rgb(var(--rp-window-border-rgb)) !important;
+}
+
+/* ── XIT FB 面板内嵌磁贴的标题栏 ─────────────────────────────────────
+   只作用于带 data-rp-fb-panel 的面板里、被搬进 data-fb-slot 的原生磁贴；
+   用户单独开的 BS / INV / BURN / FLT / SHPI 窗口完全不受影响。
+
+   1) 隐藏标题栏末尾的命令文本（BS XG-751b / INV 02f2118f / XIT BURN ... /
+      XIT FLT / SHPI ...）。必须用 display 隐藏，不能 remove() 或清空文本：
+      FB.vue 的 collectTiles() 靠 TileFrame__cmd 的 textContent 认领磁贴，
+      清空会让面板认不出自己的子磁贴并反复开窗；display:none 下文本仍可读。
+   2) 标题文字加大 2 号（游戏原生 11px → 13px）。用 calc(1em + 2px) 跟随
+      父级 header 的基准字号，主题/缩放变化时仍是「比原来大 2」，不写死
+      绝对值。SHPI 的状态徽标 ::before 与标题栏按钮组各有自己的字号，
+      保持原样不跟着放大。 */
+[data-rp-fb-panel] [data-fb-slot] [class*='TileFrame__cmd'] {
+  display: none !important;
+}
+
+[data-rp-fb-panel] [data-fb-slot] [class*='TileFrame__title'] {
+  font-size: calc(1em + 2px) !important;
 }

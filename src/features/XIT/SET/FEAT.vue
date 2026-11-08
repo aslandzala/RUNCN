@@ -13,10 +13,21 @@ import { userData } from '@src/store/user-data';
 import removeArrayElement from '@src/utils/remove-array-element';
 import { saveUserData } from '@src/infrastructure/storage/user-data-serializer';
 import Commands from '@src/components/forms/Commands.vue';
+import RadioItem from '@src/components/forms/RadioItem.vue';
 
 if (userData.settings.mode === undefined) {
   userData.settings.mode = 'BASIC';
 }
+
+// 由专门设置项控制的自动化功能（在 feature registry 里标 hidden），
+// 不重复出现在下方的功能列表里，避免出现两道开关。
+userData.settings.autoLoadProducts ??= { enabled: false };
+const autoLoadProducts = computed({
+  get: () => userData.settings.autoLoadProducts.enabled === true,
+  set: (value: boolean) => {
+    userData.settings.autoLoadProducts.enabled = value;
+  },
+});
 
 const isFullMode = userData.settings.mode === 'FULL';
 
@@ -116,6 +127,16 @@ async function onChangeModeClick() {
         </PrunButton>
       </Active>
     </form>
+    <Active
+      label="功能性开关"
+      tooltip="这些功能会持续监听游戏数据并自动执行操作，均默认关闭；打开后随处生效，无需重启。">
+      <RadioItem v-model="autoLoadProducts">
+        BSN 产物自动装船：基地有船停靠时，把 XIT BSN「产物」列登记的最终产出品静默搬进船货舱
+      </RadioItem>
+      <div :class="$style.description" style="margin-top: 6px">
+        只处理配置了产物列的基地；未登记产物的基地、飞行中的船、货舱接近满载时不执行。
+      </div>
+    </Active>
     <SectionHeader>
       功能: {{ sorted.length }}
       <span v-if="disabledFeatures.size > 0">({{ disabledFeatures.size }} 已关闭) </span>

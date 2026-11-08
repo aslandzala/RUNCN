@@ -334,6 +334,21 @@ function onGenerateAct(ev: Event) {
   min-height: 0;
   box-sizing: border-box;
   padding: 0.125rem 0.25rem;
+  /* REPD 整体字号过小：根上比游戏原生基准 +2px。用 1em（= 继承来的基准）
+     而不是写死 14px，换主题 / 换游戏字号时仍能稳定「加 2 个字号」。
+     组件内其余 6 处 font-size 都是 em，会跟着一起等比放大。 */
+  font-size: calc(1em + 2px);
+}
+
+/* 游戏原生 table / 单元格可能自带固定字号，逐层继承回根上的新基准，
+   避免只有卡片文字变大、表格里仍旧是原字号。 */
+.layout :global(table),
+.layout :global(thead),
+.layout :global(tbody),
+.layout :global(tr),
+.layout :global(th),
+.layout :global(td) {
+  font-size: inherit;
 }
 
 .overview {

@@ -539,7 +539,10 @@ function isBest(component: { bestExchange?: string }, code: string) {
           <template v-else-if="splitMarketMode"
             >卡片仅供比价 · 当前按各物品最优价分市场采购</template
           >
-          <template v-else>点击卡片指定单市场 · 当前 {{ chosenSingleExchange || '无' }}</template>
+          <template v-else
+            >点击卡片指定单市场 · 当前
+            <strong :class="$style.currentMarket">{{ chosenSingleExchange || '无' }}</strong></template
+          >
         </span>
       </div>
 
@@ -585,7 +588,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
             <span v-if="et.complete" :class="$style.completeTag">凑齐</span>
             <span v-else :class="$style.incompleteTag">缺 {{ et.missing }} 种</span>
             <span v-if="singleMarketMode && forcedExchange === et.code" :class="$style.chosenTag">
-              已指定
+              ✓ 已指定
             </span>
           </div>
         </div>
@@ -796,6 +799,11 @@ function isBest(component: { bestExchange?: string }, code: string) {
   font-size: 11px;
 }
 
+.currentMarket {
+  color: rgb(var(--rp-accent-rgb));
+  font-weight: 700;
+}
+
 .tableWrap {
   min-width: 0;
   overflow-x: auto;
@@ -970,7 +978,9 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .exchangeTotals {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  /* 132px 是「金额不换行」的最低卡宽：15px 数字的千万级金额 + 左右 8px 内边距
+     也放得下。配合 CBUY 的 700px 窗口，4 个交易所卡片稳定排成一行不折行。 */
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 6px;
   margin: 2px 0 8px;
 }
@@ -992,14 +1002,20 @@ function isBest(component: { bestExchange?: string }, code: string) {
   opacity: 0.7;
 }
 
-/* 交易所卡片可直接点选；橙框优先于「最优」绿框，表示用户强行指定 */
+/* 交易所卡片可直接点选。选中态必须压过主题注入的单类 !important 规则：
+   主题会把 .exchangeCard / .exchangeCardBest 的边框改成浅灰 / 淡绿，
+   若这里只写单类且不带 !important，选中卡片会和未选中卡片一模一样。
+   用 .exchangeTotals 前缀把特异性提到 0-2-0，并全程 !important。
+   颜色走 var()，主题引擎解析不了颜色值，不会二次改写。 */
 .exchangeCardClickable {
   cursor: pointer;
 }
 
-.exchangeCardChosen {
-  border-color: rgb(var(--rp-accent-rgb));
-  background: rgba(var(--rp-accent-rgb), 0.1);
+.exchangeTotals .exchangeCardChosen {
+  border: 2px solid var(--rp-skin-selection, #33566f) !important;
+  background-color: rgba(var(--rp-accent-rgb), 0.16) !important;
+  box-shadow: inset 3px 0 0 var(--rp-skin-selection, #33566f) !important;
+  opacity: 1 !important;
 }
 
 /* 右上角角标：最优市场标绿色「最优」，其余标橙色差价，缺报价标红色 */
@@ -1021,10 +1037,19 @@ function isBest(component: { bestExchange?: string }, code: string) {
   color: rgb(229, 115, 115);
 }
 
-.chosenTag {
+/* 「已指定」从一行 11px 细字改成实心徽章，和 2px 选中框一起明确指向当前市场。 */
+.exchangeTotals .chosenTag {
   margin-left: auto;
-  color: rgb(var(--rp-accent-rgb));
-  font-size: 11px;
+  padding: 2px 6px !important;
+  border-radius: 3px;
+  background-color: var(--rp-skin-selection, #33566f) !important;
+  color: var(--rp-skin-bg, #f2f5f7) !important;
+  -webkit-text-fill-color: var(--rp-skin-bg, #f2f5f7) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px;
+  line-height: 1.35;
+  white-space: nowrap;
 }
 
 .exchangeCardHead {
@@ -1046,6 +1071,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
   color: rgb(226, 230, 233);
   font-size: 15px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   margin-top: 2px;
 }
 

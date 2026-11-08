@@ -96,6 +96,42 @@ const selectedNaturalId = computed<string | undefined>(() => {
   return match ?? fallback;
 });
 
+// ── FB 内嵌磁贴标题：只保留原先的中文文字 ─────────────────────────
+// 不拼接星球编码 / 外显名 / BSN 别名，也不显示命令文本，标题栏只剩
+// 「基地」「库存基地」「消耗品报告」「舰队总览」这类原生中文标签。
+// 只看 title 自身的文本节点：base-alias-display 追加的
+// <span data-base-alias>「 · 别名」不属于「原先的中文文字」，必须忽略，
+// 否则中文别名会被误收进标题。
+const CJK_RE = /[\u3400-\u9fff]/g;
+
+function originalChineseOf(title: HTMLElement): string {
+  let raw = '';
+  for (const node of title.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      raw += node.textContent ?? '';
+    }
+  }
+  const chinese = raw.match(CJK_RE)?.join('') ?? '';
+  // SHPI 的标题是船名（如 LCB-D（AVI-06CRH）），没有汉字时保留原名，
+  // 否则标题栏会变空、只剩状态徽标和右侧按钮。
+  return chinese || raw.trim();
+}
+
+function applyChineseTitle(element: HTMLElement) {
+  const frame = element.querySelector(`.${C.TileFrame.frame}`) as HTMLElement | null;
+  const title = frame ? (_$(frame, C.TileFrame.title) as HTMLElement | undefined) : undefined;
+  if (!title) {
+    return;
+  }
+  const wanted = originalChineseOf(title);
+  if (title.textContent === wanted) {
+    return;
+  }
+  // 整体替换会顺带清掉别名 span 与游戏原文里的编码/外显名。
+  // React 重渲染把原文写回来时，800ms 巡检会再裁一次（幂等）。
+  title.textContent = wanted;
+}
+
 // 右下角要显示的船：停靠的在前、以该基地为目的地的在途船在后。
 // 不读 FLEET「分配」列（那只是出发时的临时指派）。列表为空时所有子槽收起，
 // 既不会开空白窗口，也不会把上一艘船的货舱留在屏幕上。
@@ -337,6 +373,13 @@ const FILL_STYLES: [string, string][] = [
   ['min-height', '0'],
 ];
 
+// 主 INV 槽：游戏 ScrollView__view 的 -15px 负 margin（紧凑模式已清零）让内容
+// 区始终比磁贴底边低约 16px，而 Tile__tile 自带 overflow:hidden，最后一行物料
+// 因此被磁贴裁掉——槽位再留白也救不了，因为裁切发生在磁贴上，不在槽位上。
+// 槽位用等量 padding-bottom 腾出这 16px 可视范围，磁贴高度再补回 16px，
+// 内容才真正落在磁贴内。两处必须保持同值，见 .slot.mainInvSlot 的样式注释。
+const INV_TILE_EXTRA_PX = 16;
+
 function rememberStyle(element: HTMLElement) {
   if (!touchedStyles.some(x => x.element === element)) {
     touchedStyles.push({ element, attr: element.getAttribute('style') });
@@ -392,6 +435,13 @@ function adopt(key: SlotKey, element: HTMLElement) {
   } else {
     element.style.removeProperty('display');
   }
+  // 每次认领都校准高度：React 重建磁贴 inline style 后节点可能仍在同一槽位，
+  // 只靠搬移分支里的 FILL_STYLES 会漏掉这种情况。
+  element.style.setProperty(
+    'height',
+    key === 'inv' ? `calc(100% + ${INV_TILE_EXTRA_PX}px)` : '100%',
+    'important',
+  );
   // 槽位里只留一块可见：改命令后游戏可能生成新节点，两块叠一起会变成白块。
   for (const child of Array.from(host.children)) {
     if (child !== element) {
@@ -625,6 +675,10 @@ function tick() {
       syncCommand(key, chosen);
     }
     adopt(key, chosen);
+    // 五类磁贴的标题栏一律只留原先的中文文字；SHPI 船名无汉字时保留原名。
+    // 末尾命令文本由 refined-prun.css 的 display:none 隐藏（textContent 保留，
+    // collectTiles 还要靠它认领磁贴）。
+    applyChineseTitle(chosen);
     // 不再隐藏任何「多余」磁贴：其它停靠格已被 expandSelf 藏住，
     // 而用户自己开的浮动窗口必须原样留在屏幕上。
   }
@@ -808,6 +862,13 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  /* 内嵌组件原本是透明 + 0 边框，BS / INV / BURN / FLT / SHPI 连成一片。
+     用主题边框、圆角和极淡底色把每个槽位分出卡片边界；颜色走 --rp-skin-*，
+     三套主题都协调，原样主题回退到中性灰蓝。 */
+  border: 1px solid var(--rp-skin-border-strong, #7f9cb2);
+  border-radius: 3px;
+  background-color: var(--rp-skin-panel, #e8edf1);
+  box-sizing: border-box;
 }
 
 /* FLT 最后一行被裁半截的根因（两层原生样式叠加，与滚动条无关）：
@@ -819,6 +880,22 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
    末行。这里只校正 FLT 槽：外边距归零、负 margin 归零，滚动条交给上面的细条
    规则显示，内容区与槽位严格等高。其它槽（INV/SHPI 图标布局）保持原样。 */
 .slot.fltSlot [class*='Tile__tile'] {
+  margin: 0 !important;
+}
+
+/* INV 主槽刷新后首次加载，最下方一行物料会被窗格裁掉约 12px（切换基地
+   重建磁贴后才完整）。根因是游戏 ScrollView__view 的 -15px 负 margin 让内容
+   区比磁贴底边低约 16px，而 Tile__tile 自己 overflow:hidden——裁切发生在
+   磁贴上，槽位留白救不了。这里给槽位 padding-bottom 腾出 16px 可视范围，
+   再由 adopt() 把 INV 磁贴的 inline height 设成 calc(100% + 16px)，
+   让磁贴底边追上内容底边，末行才真正落在磁贴内且无需滚动。
+   两个 16px 必须同值；只作用于 FB 面板的主 INV 槽，独立 INV 窗口不受影响。 */
+.slot.mainInvSlot {
+  padding-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.slot.mainInvSlot [class*='Tile__tile'] {
   margin: 0 !important;
 }
 
@@ -944,24 +1021,28 @@ html[data-rp-inv-compact='on'] [data-rp-fb-panel] .slot.mainInvSlot {
   flex: 0.8 1 0;
 }
 
-/* 滚动条统一成游戏内的细条样式（CSS Modules 里不能写 :global，直接挂类名后代） */
+/* 主题注入的 html[data-rp-theme] * { scrollbar-color: ... } 会让 Chromium
+   改用标准滚动条（thin ≈ 10px）并忽略 ::-webkit-scrollbar；FB 内嵌磁贴
+   的 overflow:scroll 于是画出整条 10px 轨道，看起来比游戏原版粗很多。
+   这里把标准属性清回默认（!important 压过主题），让下面 4px 细条生效。 */
 .layout * {
-  scrollbar-width: thin;
-  scrollbar-color: #333333 #222222;
+  scrollbar-width: auto !important;
+  scrollbar-color: auto !important;
 }
 
 .layout *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
+  background: transparent;
 }
 
 .layout *::-webkit-scrollbar-track {
-  background: #222222;
+  background: transparent;
 }
 
 .layout *::-webkit-scrollbar-thumb {
-  background-color: #333333;
-  border-radius: 5px;
-  border: 3px solid #333333;
+  background-color: var(--rp-skin-scroll-thumb, #b6c1cb) !important;
+  border: 0 !important;
+  border-radius: 3px;
 }
 </style>

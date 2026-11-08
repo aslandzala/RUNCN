@@ -1,0 +1,56 @@
+/* BLU「指令」列 / 「新建」按钮旁的眼睛按钮。
+   颜色一律走 var() 且回退值不含颜色 token：主题引擎只扫描 # / rgb() 之类的
+   颜色字面量，这样三套主题下按钮都自动跟随，也不会被二次重映射。 */
+.eyeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0 3px 0 0;
+  vertical-align: middle;
+  box-sizing: border-box;
+  /* 游戏 [data-tooltip] 规则本就给了 position:relative，这里显式写死，
+     保证下面 hover 抬升的 z-index 一定生效。 */
+  position: relative;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  background-color: var(--rp-skin-panel, transparent);
+  color: var(--rp-skin-ink, inherit);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  text-shadow: none;
+}
+
+.eyeButton:hover {
+  filter: brightness(0.92);
+}
+
+/* 表体眼睛按钮的浮窗（data-tooltip-position=bottom）会向下盖到下一行，
+   被后续 <tr>/<td> 的背景和相邻单元格压住：游戏原生只给伪元素 z-index:50，
+   按钮自身还是 z-index:auto。实测在浮窗中心命中到的是 TD 而不是按钮；
+   hover 时把按钮与 ::before/::after 一起抬到 200 后命中按钮，浮窗稳定置顶。
+   与 XIT CBUY / BPC 控件栏用的是同一档层级。 */
+.eyeButton[data-tooltip]::before,
+.eyeButton[data-tooltip]::after {
+  z-index: 200 !important;
+}
+
+.eyeButton[data-tooltip]:hover {
+  z-index: 200;
+}
+
+.toggle {
+  width: 20px;
+  height: 19px;
+  font-size: 12px;
+}
+
+/* 已隐藏的蓝图：眼睛画一条斜杠，按钮本身用下划线强调当前状态。 */
+.isHidden {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}

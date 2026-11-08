@@ -38,6 +38,7 @@ const {
   showRepair,
   showInv,
   showWar,
+  showFill,
   storeId,
   warehouseStoreId,
   analysis,
@@ -51,6 +52,7 @@ const {
   showRepair: boolean;
   showInv: boolean;
   showWar: boolean;
+  showFill: boolean;
   storeId: string;
   warehouseStoreId?: string;
   analysis?: BaseStorageAnalysis;
@@ -408,7 +410,7 @@ const barAlarmReason = computed(() =>
         </div>
       </Tooltip>
     </td>
-    <td :class="[$style.inputCell, $style.advanceCell]">
+    <td v-if="showRepair" :class="[$style.inputCell, $style.advanceCell]">
       <SelectInput
         v-model="config.repAdvance"
         :width="72"
@@ -439,7 +441,7 @@ const barAlarmReason = computed(() =>
     <td :class="$style.advToggleCell">
       <RadioItem v-model="config.cxBuy" horizontal>购买</RadioItem>
     </td>
-    <td :class="$style.statusCell">
+    <td v-if="showFill" :class="$style.statusCell">
       <div :class="[$style.statusContent, fillBgClass]">
         <span :class="$style.statusNum">{{ fillText }}</span>
       </div>

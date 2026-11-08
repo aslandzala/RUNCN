@@ -93,6 +93,13 @@ const SKINS: Record<string, Skin> = {
       '--rp-color-text': '#26333d',
       '--rp-color-text-component': '#26333d',
       '--rp-color-disabled': '#98a3ac',
+      // FLT ETA 倒计时（组件 inline 色）。action-* 是保留的旧语义色，
+      // 浅色主题下动作按钮已统一走 Button primary 皮肤（见 CONTROL_CSS）。
+      '--rp-skin-eta': '#1f5f8f',
+      '--rp-skin-eta-sub': '#4a5863',
+      '--rp-skin-action-unload': '#8a6327',
+      '--rp-skin-action-flight': '#2f6b48',
+      '--rp-skin-action-fuel': '#9b4741',
     },
     palette: {
       slate: {
@@ -167,6 +174,13 @@ const SKINS: Record<string, Skin> = {
       '--rp-color-text': '#3d3833',
       '--rp-color-text-component': '#3d3833',
       '--rp-color-disabled': '#a89c85',
+      // FLT ETA 倒计时（组件 inline 色）。action-* 是保留的旧语义色，
+      // 浅色主题下动作按钮已统一走 Button primary 皮肤（见 CONTROL_CSS）。
+      '--rp-skin-eta': '#2f6b70',
+      '--rp-skin-eta-sub': '#756b5d',
+      '--rp-skin-action-unload': '#8a5a1c',
+      '--rp-skin-action-flight': '#3f6b70',
+      '--rp-skin-action-fuel': '#9b4741',
     },
     palette: {
       slate: {
@@ -284,7 +298,11 @@ html[data-rp-theme] [class*="BuildingIcon__tickerContainer"] {
 html[data-rp-theme] [class*="MaterialIcon__indicator"] {
   color: var(--rp-skin-ink) !important;
   background-color: var(--rp-skin-indicator-bg) !important;
-  border: 1px solid var(--rp-skin-icon-border) !important;
+  /* 数量角标不描边：物料 / 建筑图标自身已有一圈边框，角标再加一圈会形成
+     内外双框。数字靠深墨字 + 浅实底保证可读，不需要额外轮廓。 */
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
   text-shadow: none !important;
 }
 html[data-rp-theme] [class*="RadioItem__value"],
@@ -299,6 +317,68 @@ html[data-rp-theme] .rp-cargo-track {
   background-image: none !important;
   border: 1px solid var(--rp-skin-border) !important;
   box-sizing: border-box;
+}
+/* 底部状态栏：资金 / 版本号 / 在线人数。游戏原生是白字，版本号还是
+   -webkit-text-fill-color: transparent + background-clip: text 的渐变字，
+   主题把渐变换成浅色后字直接糊在浅底上；这里统一给回深墨实色字。 */
+html[data-rp-theme] [class*="HeadItem__container"],
+html[data-rp-theme] [class*="HeadItem__label"],
+html[data-rp-theme] [class*="HeadItem__link"],
+html[data-rp-theme] [class*="UsersOnlineCount__container"] {
+  color: var(--rp-skin-ink) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink) !important;
+  font-weight: 600;
+}
+html[data-rp-theme] [class*="UsersOnlineCount__container"] {
+  background-color: var(--rp-skin-panel) !important;
+  border-top-color: var(--rp-skin-border) !important;
+}
+html[data-rp-theme] [class*="rprun-version-label__label"] {
+  background-image: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+}
+/* XIT FLT / ETA 列与 SHPI 标题栏图标按钮：按主题统一成「Button primary」
+   式样（浅实底 + 细边框 + 2px 圆角 + 深墨图标），对齐 FLEET 未分配船只按钮；
+   不再用橙 / 绿 / 红三块彩色实底区分，功能交给 ⭳ / ✈ / 油泵图案本身。
+   倒计时是组件写死的淡蓝 / 灰 inline 色，单独覆盖成深墨保证浅底可读。 */
+html[data-rp-theme] [class*="TimeCell__timeColumn"] > span:first-child {
+  color: var(--rp-skin-eta, #1f5f8f) !important;
+  font-weight: 600;
+  opacity: 1 !important;
+}
+html[data-rp-theme] [class*="TimeCell__timeColumn"] > span:last-child {
+  color: var(--rp-skin-eta-sub, #4a5863) !important;
+  opacity: 1 !important;
+}
+html[data-rp-theme] [class*="TimeCell__actionBtn"],
+html[data-rp-theme] [data-rp-shpi-action] {
+  color: var(--rp-skin-ink) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink) !important;
+  background-color: var(--rp-skin-panel-strong) !important;
+  background-image: none !important;
+  border: 1px solid var(--rp-skin-border-strong) !important;
+  border-radius: 2px !important;
+  box-sizing: border-box;
+  font-weight: 600;
+  text-shadow: none !important;
+}
+html[data-rp-theme] [class*="TimeCell__actionBtn"]:hover,
+html[data-rp-theme] [data-rp-shpi-action]:hover {
+  background-color: var(--rp-skin-hover) !important;
+  border-color: var(--rp-skin-selection) !important;
+}
+/* 组件 / SHPI 模块写死的橙绿红底色统一压回主题按钮底色 */
+html[data-rp-theme] [class*="TimeCell__bgOrange"],
+html[data-rp-theme] [class*="TimeCell__bgGreen"],
+html[data-rp-theme] [class*="TimeCell__bgFuel"],
+html[data-rp-theme] [data-rp-shpi-action="unload"],
+html[data-rp-theme] [data-rp-shpi-action="flight"] {
+  background-color: var(--rp-skin-panel-strong) !important;
+}
+html[data-rp-theme] [class*="TimeCell__iconSvg"] {
+  color: var(--rp-skin-ink) !important;
+  fill: currentColor !important;
 }
 html[data-rp-theme] * { scrollbar-color: var(--rp-skin-scroll-thumb) var(--rp-skin-bg); }
 `;
@@ -530,8 +610,8 @@ function addToBucket(bucket: Bucket, selector: string, decls: Map<string, string
 
 // 游戏用 Workforces__daysWarning / daysMissing 给「剩余天数、维修期限、仓储告警」
 // 上色。通用映射会把琥珀黄归到石板蓝族、又保留 0.3 的 alpha，浅底上几乎看不见。
-// 这两类语义状态直接给一套柔和底色 + 深字 + 左侧细色条：信息一眼可辨，
-// 又不像亮橙块那样把界面铺满彩色。daysSupplied（正常绿）继续走通用映射保持素淡。
+// 这两类语义状态直接给一套柔和底色 + 深字：信息一眼可辨，且只靠底色强调，
+// 不再叠加左侧色条。daysSupplied（正常绿）继续走通用映射保持素淡。
 const STATUS_RE = /days(Warning|Missing)/;
 
 function statusOverride(selector: string, skin: Skin): Map<string, string> | null {
@@ -543,7 +623,9 @@ function statusOverride(selector: string, skin: Skin): Map<string, string> | nul
   return new Map<string, string>([
     ['background-color', status.background],
     ['color', status.text],
-    ['box-shadow', `inset 2px 0 0 ${status.border}`],
+    // 不在色块前面加左侧彩色竖线：黄 / 红底色本身就是强调，再加一条 2px
+    // inset 色条会显得多余。显式清空，压掉游戏原生可能带的内阴影。
+    ['box-shadow', 'none'],
   ]);
 }
 
