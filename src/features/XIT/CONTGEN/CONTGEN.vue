@@ -612,7 +612,7 @@ function applyTotalPrice() {
 }
 
 .previewTabActive {
-  background: rgba(255, 176, 0, 0.18);
+  background: rgba(var(--rp-accent-rgb), 0.18);
   border-color: #f0ad4e;
   color: #f0ad4e;
 }

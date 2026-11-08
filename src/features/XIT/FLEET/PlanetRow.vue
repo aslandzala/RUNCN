@@ -80,16 +80,26 @@ watch(
   { immediate: true },
 );
 
-const burnBgClass = computed(() => (days.value === undefined ? {} : burnDaysClass(days.value)));
+// 数字默认不带底色；只在黄/红异常时标色，正常（绿色）状态保持素底。
+const burnBgClass = computed(() => {
+  if (days.value === undefined) {
+    return {};
+  }
+  const classes = burnDaysClass(days.value);
+  return {
+    [C.Workforces.daysMissing]: classes[C.Workforces.daysMissing],
+    [C.Workforces.daysWarning]: classes[C.Workforces.daysWarning],
+  };
+});
 
 const daysText = computed(() => (days.value === undefined ? '-' : formatBurnDays(days.value)));
 
 const repairAge = computed(() => getPlanetRepairAge(siteId, timestampEachMinute.value));
 
-// 维修列三色:沿用原 REPP 模型语义(基于整站 economic sweep 的 optimalDay)。
+// 维修列异常标色：
 //   age ≥ optimalDay            → 红 (daysMissing,已到触发)
 //   optimalDay − 3 ≤ age < optimalDay → 黄 (daysWarning,警告期)
-//   age < optimalDay − 3        → 绿 (daysSupplied,健康)
+//   age < optimalDay − 3        → 不标色（原绿色底色已去掉）
 const REPAIR_WARN_OFFSET = 3;
 const optimalDay = computed(() => calculateSiteOptimalDay(siteId));
 const repairBgClass = computed(() => {
@@ -105,7 +115,7 @@ const repairBgClass = computed(() => {
   if (d >= od - REPAIR_WARN_OFFSET) {
     return { [C.Workforces.daysWarning]: true };
   }
-  return { [C.Workforces.daysSupplied]: true };
+  return {};
 });
 
 const repairDaysText = computed(() => {
@@ -184,7 +194,8 @@ const fillBgClass = computed(() => {
     case 'yellow':
       return { [C.Workforces.daysWarning]: true };
     default:
-      return { [C.Workforces.daysSupplied]: true };
+      // 正常状态不加底色（原 daysSupplied 绿色底色已去掉）。
+      return {};
   }
 });
 
@@ -309,9 +320,9 @@ const prodBgClass = computed(() => {
   if (!totals) {
     return {};
   }
+  // 满产时素底，只有产线空闲（订单 < 产能）才标红。
   return {
     [C.Workforces.daysMissing]: totals.orders < totals.capacity,
-    [C.Workforces.daysSupplied]: totals.orders >= totals.capacity,
   };
 });
 const prodText = computed(() => {
@@ -632,8 +643,8 @@ const barAlarmReason = computed(() =>
 }
 
 .faintSelect :global(select:focus) {
-  border-color: rgb(255, 176, 0);
-  box-shadow: inset 0 0 0 1px rgb(255, 176, 0);
+  border-color: rgb(var(--rp-accent-rgb));
+  box-shadow: inset 0 0 0 1px rgb(var(--rp-accent-rgb));
   background: rgb(30, 38, 44);
 }
 

@@ -6,6 +6,8 @@ html {
   --rp-color-red: #d9534f;
   --rp-color-orange: #f0ad4e;
   --rp-color-accent-primary: #ffc856;
+  /* 插件强调色统一入口。浅色主题下由 theme.ts 覆盖成低饱和石板蓝。 */
+  --rp-accent-rgb: 255, 176, 0;
 }
 
 @font-face {
@@ -22,4 +24,131 @@ html {
   font-weight: 400;
   font-display: block;
   src: url('~/fonts/fa-regular-400.woff2') format('woff2');
+}
+
+/* ── INV 紧凑布局（可选，默认关闭，且只在 XIT FB 面板内生效） ──────────
+   所有规则都带 html[data-rp-inv-compact='on'] 前缀：默认（含刷新后未开启时）
+   完全没有覆盖，游戏原生 INV / SHPI 保持原版排列与图标大小。只有点击窗体内部
+   右上角的「紧凑排列」按钮后，inv-compact-layout.tsx 才会把该属性置为 on。
+   [data-rp-fb-panel] 是 FB.vue 根元素上的作用域标记：紧凑排列与按钮是
+   「XIT FB 面板」专属，用户单独打开的 INV / SHPI 命令窗口不受开关影响，
+   无论开关是开是关，始终使用游戏原版排列与 48px 图标。
+   原生排布是分组头独占一整行 + space-around，会在组末留大片空白；改成竖排
+   中文窄标签后物料跨组连续流动，图标、拖拽、排序控件全部保留。
+   图标档位只改 --rp-inv-icon-size：24 / 28 / 32 / 36 均可。 */
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) {
+  --rp-inv-icon-size: 32px;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='InventoryView__grid'] {
+  justify-content: flex-start !important;
+  align-content: flex-start !important;
+  margin-bottom: 0 !important;
+}
+
+/* 分组头变竖排书脊标签；原英文文案以 font-size:0 隐去，中文由 ::after 提供。
+   data-label 由 inv-custom-item-sorting/CategoryHeader.vue 透传。 */
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'] {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch !important;
+  width: auto !important;
+  min-width: 0;
+  height: auto !important;
+  min-height: 0;
+  margin: 0 3px 0 0 !important;
+  padding: 2px 1px !important;
+  border-left: 2px solid rgba(var(--rp-accent-rgb), 0.85);
+  box-sizing: border-box;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 0 !important;
+  line-height: 1 !important;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container']::after {
+  content: attr(data-label);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Consumables']::after {
+  content: '消耗';
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Inputs']::after {
+  content: '投入';
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Outputs']::after {
+  content: '产出';
+}
+
+/* 修掉 Tile 外边距与 ScrollView__view 的 -15px 负边距留下的固定空白。 */
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='Tile__tile'] {
+  margin: 0 !important;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='ScrollView__view'] {
+  margin-right: 0 !important;
+  margin-bottom: 0 !important;
+  padding-right: 0 !important;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='GridItemView__container'] {
+  width: calc(var(--rp-inv-icon-size) + 10px) !important;
+  margin: 2px !important;
+  padding: 1px !important;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='GridItemView__image'] {
+  width: var(--rp-inv-icon-size) !important;
+  height: var(--rp-inv-icon-size) !important;
+  margin: 1px auto !important;
+}
+
+/* 图标尺寸由游戏写在 style 属性里，必须 !important 才能覆盖。 */
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='MaterialIcon__container'],
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='ColoredIcon__container'] {
+  width: var(--rp-inv-icon-size) !important;
+  height: var(--rp-inv-icon-size) !important;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='ColoredIcon__container'] {
+  font-size: calc(var(--rp-inv-icon-size) * 0.33) !important;
+}
+
+html[data-rp-inv-compact='on'] [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) [class*='GridItemView__name'] {
+  display: block;
+  font-size: 9px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+/* ── XIT FB 面板内的「紧凑排列」按钮 ──────────────────────────────────
+   按钮挂在 TileFrame.frame 上（不在标题栏控件区，FB 会把那块隐藏），绝对定位到
+   标题栏下方那一行。游戏的上下文命令行（WAR / UPCK 等）是 flex-end 靠右排，
+   这里让出右侧约 72px，按钮正好落在它旁边，不会盖住命令文字。
+   FB 是异步把原生磁贴 appendChild 搬进面板的，注入时机早于搬移，所以按钮
+   是否可见完全交给 CSS 按 [data-rp-fb-panel] 祖先判断：只有 XIT FB 面板内的
+   INV / SHPI 磁贴显示按钮，用户单独打开的 INV / SHPI 窗口连留白都没有。 */
+[data-rp-ui='inv-compact-toggle'] {
+  display: none !important;
+}
+
+[data-rp-fb-panel] [data-rp-ui='inv-compact-toggle'] {
+  display: inline-flex !important;
+  align-items: center;
+}
+
+[data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI) > [class*='ContextControls__container'] {
+  padding-right: 72px !important;
+  box-sizing: border-box;
 }

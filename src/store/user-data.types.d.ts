@@ -247,13 +247,8 @@ declare namespace UserData {
     showOriginal: boolean;
   }
 
-  interface DarkModeSettings {
-    enabled: boolean;
-    brightness: number;
-    contrast: number;
-    sepia: number;
-    grayscale: number;
-  }
+  // 界面主题：default = 游戏原生深色，light = 整套浅色明亮。
+  type ThemeId = 'default' | 'light' | 'paper';
 
   // 基地别名：siteId → 别名字符串。
   // 玩家在 SFC 目的地输入框键入别名时，会被替换为该基地的行星 naturalId，

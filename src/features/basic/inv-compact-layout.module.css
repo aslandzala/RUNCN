@@ -1,0 +1,25 @@
+/* 按钮绝对定位到 frame 内部右上角：标题栏下方那一行（上下文命令行）的右端。
+   frame 自身 position:relative，因此不依赖 TileFrame.controls（FB 会隐藏它）。 */
+.toggle {
+  position: absolute;
+  top: 28px;
+  right: 6px;
+  z-index: 5;
+  height: 16px;
+  padding: 0 6px;
+  margin: 0;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+/* 激活态用下划线而不是底色：主题引擎会重刷按钮底色/阴影，文字下划线不会被覆盖。 */
+.active {
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--rp-accent-rgb));
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
