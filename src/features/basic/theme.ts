@@ -1,5 +1,6 @@
 import { watchEffect } from 'vue';
 import { userData } from '@src/store/user-data';
+import { buildCeramicSkin, CERAMIC_CSS, CERAMIC_THEME_ID } from './theme-ceramic';
 
 // 界面主题：不再使用 html 上的 invert/hue-rotate 滤镜，而是直接改写颜色。
 // 扫描页面样式表，把每条声明里的颜色按「角色」重映射到一套低饱和浅色皮肤：
@@ -30,9 +31,13 @@ interface StatusColors {
   border: string;
 }
 
-interface Skin {
+// 可选的 8 色相带调色板：只对「陶瓷白多彩」主题启用。启用后，原本鲜艳的
+// 游戏彩色按色相映射到固定色带（同一色相全站同色），light / paper 仍然走
+// 下面的三族收敛，行为完全不变。
+export interface Skin {
   vars: Record<string, string>;
   palette: Record<Family, FamilyColors>;
+  hueBands?: Record<string, FamilyColors>;
   // 加在中性灰上的轻微 RGB 偏移，让整套皮肤带一点冷/暖倾向。
   neutralShift: [number, number, number];
   // 期限/告警语义色：这类底色承载「还剩几天 / 该修了」的信息，不能和装饰性
@@ -100,6 +105,9 @@ const SKINS: Record<string, Skin> = {
       '--rp-skin-action-unload': '#8a6327',
       '--rp-skin-action-flight': '#2f6b48',
       '--rp-skin-action-fuel': '#9b4741',
+      // CXOS「已成交」专用：与「买入」的墨绿、已挂单的深蓝都拉开色相，
+      // 避免状态文字与买卖方向混成同一种颜色。
+      '--rp-skin-action-done': '#5b4a8a',
     },
     palette: {
       slate: {
@@ -150,14 +158,15 @@ const SKINS: Record<string, Skin> = {
   paper: {
     vars: {
       '--rp-skin-bg': '#f6f3eb',
-      '--rp-skin-bg-image': 'radial-gradient(circle at 92% 0%, #fffdf7 0%, rgba(255, 253, 247, 0) 55%)',
+      '--rp-skin-bg-image':
+        'radial-gradient(circle at 92% 0%, #fffdf7 0%, rgba(255, 253, 247, 0) 55%)',
       '--rp-skin-panel': '#eee9dc',
       '--rp-skin-panel-strong': '#e2d8c2',
       '--rp-skin-hover': '#ece4d2',
       '--rp-skin-border': '#c9bda1',
       '--rp-skin-border-strong': '#a68a5b',
       '--rp-skin-ink': '#3d3833',
-      '--rp-skin-muted': '#756b5d',
+      '--rp-skin-muted': '#635a4c',
       '--rp-skin-disabled': '#a89c85',
       '--rp-skin-disabled-bg': '#f4efe3',
       '--rp-skin-disabled-border': '#e3dac7',
@@ -168,7 +177,12 @@ const SKINS: Record<string, Skin> = {
       '--rp-skin-indicator-bg': '#f8f3e7',
       '--rp-skin-active-bg': '#eee5d0',
       '--rp-skin-scroll-thumb': '#c9bda1',
-      '--rp-skin-selection': '#9b6b2f',
+      /* 选中态主色同时被 NX 空间站列、CONTGEN 预览选中页签、全局兜底的
+         --rp-color-accent-primary 当文字色用。原 #9b6b2f 在暖米底上只有
+         4.07:1（SELL 的 RadioItem 用 muted 也仅 4.17:1），调到深一档后
+         全部过 4.5:1。--rp-accent-rgb / --rp-color-accent-primary 保持
+         原值不变：那是 BRN 分类头与卡片底色的色彩来源，不是文字色。 */
+      '--rp-skin-selection': '#7f5522',
       '--rp-accent-rgb': '155, 107, 47',
       '--rp-color-accent-primary': '#9b6b2f',
       '--rp-color-text': '#3d3833',
@@ -177,10 +191,11 @@ const SKINS: Record<string, Skin> = {
       // FLT ETA 倒计时（组件 inline 色）。action-* 是保留的旧语义色，
       // 浅色主题下动作按钮已统一走 Button primary 皮肤（见 CONTROL_CSS）。
       '--rp-skin-eta': '#2f6b70',
-      '--rp-skin-eta-sub': '#756b5d',
+      '--rp-skin-eta-sub': '#635a4c',
       '--rp-skin-action-unload': '#8a5a1c',
       '--rp-skin-action-flight': '#3f6b70',
       '--rp-skin-action-fuel': '#9b4741',
+      '--rp-skin-action-done': '#5e4a7a',
     },
     palette: {
       slate: {
@@ -228,6 +243,14 @@ const SKINS: Record<string, Skin> = {
   },
 };
 
+// 陶瓷白多彩主题的颜色不写死在 JS 里：每次生成覆盖表时从 CSS 语义 token
+// 读取，保证色板只有一处定义、切换后立刻跟随 token 变化。
+const SKIN_IDS = new Set<string>([...Object.keys(SKINS), CERAMIC_THEME_ID]);
+
+function skinFor(theme: string): Skin | undefined {
+  return theme === CERAMIC_THEME_ID ? buildCeramicSkin() : SKINS[theme];
+}
+
 // 控件规则两套皮肤共用，颜色全部走 --rp-skin-* 变量。
 // 这些规则专门对付「样式表里没有的颜色」：运行时 inline style、浏览器默认控件，
 // 以及需要额外补边框/字重才能分出层级的按钮。
@@ -235,6 +258,14 @@ const CONTROL_CSS = `
 html[data-rp-theme] body {
   background-color: var(--rp-skin-bg) !important;
   background-image: var(--rp-skin-bg-image, none) !important;
+}
+/* 游戏原生窗口外壳是 repeating-linear-gradient 深色斜纹底（新建 / 点按钮
+   弹出的缓存窗口都用这个壳）。主题引擎只把里面的颜色重映射成浅灰，斜纹
+   本身还在，三个自定义主题下就变成明显的灰色斑马纹窗体背景 / 边缘条纹。
+   这里统一清掉背景图，只留皮肤的纯色底；重复 [data-rp-theme] 提高特异性，
+   压过重映射表里带 !important 的同类规则。 */
+html[data-rp-theme][data-rp-theme] [class*="Window__window"] {
+  background-image: none !important;
 }
 html[data-rp-theme] [class*="Button__btn"] {
   color: var(--rp-skin-ink) !important;
@@ -383,8 +414,8 @@ html[data-rp-theme] [class*="TimeCell__iconSvg"] {
 html[data-rp-theme] * { scrollbar-color: var(--rp-skin-scroll-thumb) var(--rp-skin-bg); }
 `;
 
-function tokensFor(theme: string): string {
-  const decls = Object.entries(SKINS[theme].vars)
+function tokensFor(theme: string, skin: Skin): string {
+  const decls = Object.entries(skin.vars)
     .map(([key, value]) => `  ${key}: ${value};`)
     .join('\n');
   return `
@@ -488,17 +519,56 @@ function familyOf(rgba: RGBA): Family {
   return 'slate';
 }
 
+// 多彩主题专用：把色相切成 8 个固定色带，key 与 theme-ceramic.ts 的
+// ceramicHueBands() 一一对应。相同的输入色相永远得到相同的分类色，
+// 因此「同一分类全站同色」，不会变成每卡片随机配色。
+function bandKeyOf(rgba: RGBA): string {
+  const h = hueOf(rgba);
+  if (h < 22 || h >= 330) {
+    return 'rose';
+  }
+  if (h < 55) {
+    return 'amber';
+  }
+  if (h < 90) {
+    return 'olive';
+  }
+  if (h < 160) {
+    return 'teal';
+  }
+  if (h < 200) {
+    return 'cyan';
+  }
+  if (h < 250) {
+    return 'blue';
+  }
+  if (h < 290) {
+    return 'violet';
+  }
+  return 'plum';
+}
+
 function roleOf(prop: string, value: string): Role {
-  if (/^(color|fill|stroke|caret-color|text-decoration-color|-webkit-text-fill-color)$/.test(prop)) {
+  if (
+    /^(color|fill|stroke|caret-color|text-decoration-color|-webkit-text-fill-color)$/.test(prop)
+  ) {
     return 'text';
   }
-  if (prop === 'background-image' || (prop.startsWith('background') && value.includes('gradient('))) {
+  if (
+    prop === 'background-image' ||
+    (prop.startsWith('background') && value.includes('gradient('))
+  ) {
     return 'gradient';
   }
   if (prop.startsWith('background')) {
     return 'background';
   }
-  if (/color$/.test(prop) || prop === 'box-shadow' || prop === 'text-shadow' || prop === 'outline') {
+  if (
+    /color$/.test(prop) ||
+    prop === 'box-shadow' ||
+    prop === 'text-shadow' ||
+    prop === 'outline'
+  ) {
     return 'border';
   }
   return 'other';
@@ -551,7 +621,7 @@ function mapColor(token: string, role: Role, index: number, skin: Skin): string 
     return a < 1 ? `rgba(${cr}, ${cg}, ${cb}, ${a})` : `rgb(${cr}, ${cg}, ${cb})`;
   }
 
-  const palette = skin.palette[familyOf(rgba)];
+  const palette = skin.hueBands?.[bandKeyOf(rgba)] ?? skin.palette[familyOf(rgba)];
   let color: string;
   switch (role) {
     case 'text':
@@ -587,10 +657,12 @@ function hasSemanticBackground(style: CSSStyleDeclaration): boolean {
       continue;
     }
     const tokens = style.getPropertyValue(prop).match(COLOR_RE);
-    if (tokens?.some(t => {
-      const parsed = parseColor(t);
-      return parsed !== null && !isNeutral(parsed);
-    })) {
+    if (
+      tokens?.some(t => {
+        const parsed = parseColor(t);
+        return parsed !== null && !isNeutral(parsed);
+      })
+    ) {
       return true;
     }
   }
@@ -749,6 +821,12 @@ function semanticOverride(
   return out.size > 0 ? out : null;
 }
 
+// 主题自己的 token 定义块（refined-prun.css 里的
+// html[data-rp-theme='ceramic-colorful'] { ... }）存的是皮肤色值本身，
+// 不能被当成「游戏原生颜色」重新映射，否则整张色板会被压成中性灰。
+// 只跳过精确的 token 规则，组件映射规则照常参与扫描。
+const TOKEN_RULE_RE = /^html\[data-rp-theme=[^\]]+\](?:\s+body)?$/;
+
 // 遍历所有同源样式表。@media / @supports 内的规则按其原始前缀单独归档，
 // 保证覆盖规则和原规则处在相同的媒体条件下。
 function collect(
@@ -760,7 +838,7 @@ function collect(
 ) {
   for (let i = 0; i < rules.length; i++) {
     const rule = rules[i] as CSSStyleRule & CSSGroupingRule;
-    if (typeof rule.selectorText === 'string') {
+    if (typeof rule.selectorText === 'string' && !TOKEN_RULE_RE.test(rule.selectorText)) {
       const bucket = prefix ? (grouped.get(prefix) ?? new Map()) : plain;
       if (prefix) {
         grouped.set(prefix, bucket);
@@ -815,8 +893,7 @@ function renderBucket(bucket: Bucket): string {
   return blocks.join('\n');
 }
 
-function buildCss(theme: string): string {
-  const skin = SKINS[theme];
+function buildCss(skin: Skin): string {
   const plain: Bucket = new Map();
   const grouped = new Map<string, Bucket>();
   for (const sheet of document.styleSheets) {
@@ -850,20 +927,24 @@ function init() {
 
   const apply = () => {
     const theme = userData.settings.theme ?? 'default';
-    if (!SKINS[theme]) {
+    if (!SKIN_IDS.has(theme)) {
       style.textContent = '';
       delete document.documentElement.dataset.rpTheme;
       return;
     }
+    // 先标记 data-theme，新主题的 token 才已生效，skinFor 才能读到色值。
     document.documentElement.dataset.rpTheme = theme;
+    const skin = skinFor(theme)!;
     // 覆盖表在前、主题变量与控件规则在后，保证强调色和控件层级以主题为准。
-    style.textContent = `${buildCss(theme)}\n${tokensFor(theme)}\n${CONTROL_CSS}`;
+    // CERAMIC_CSS 最后：同特异性下由它决定按钮/控件/表格的最终外观。
+    const componentCss = theme === CERAMIC_THEME_ID ? `\n${CERAMIC_CSS}` : '';
+    style.textContent = `${buildCss(skin)}\n${tokensFor(theme, skin)}\n${CONTROL_CSS}${componentCss}`;
   };
 
   watchEffect(() => {
     const theme = userData.settings.theme ?? 'default';
     apply();
-    if (!SKINS[theme]) {
+    if (!SKIN_IDS.has(theme)) {
       observer?.disconnect();
       observer = undefined;
       return;
@@ -889,5 +970,5 @@ function init() {
 features.add(
   import.meta.url,
   init,
-  '界面主题：切换整套界面配色（原样 / 浅色明亮 / 暖米纸），直接改颜色，保留期限告警的黄红标记，不影响图片与数据状态色。',
+  '界面主题：切换整套界面配色（原样 / 浅色明亮 / 暖米纸 / 陶瓷白多彩），直接改颜色，保留期限告警的黄红标记，不影响图片与数据状态色。',
 );

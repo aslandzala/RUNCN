@@ -2,8 +2,12 @@
 import BaseAlias from '@src/components/BaseAlias.vue';
 import LoadingSpinner from '@src/components/LoadingSpinner.vue';
 import MaterialPurchaseTable from '@src/components/MaterialPurchaseTable.vue';
+import NumberInput from '@src/components/forms/NumberInput.vue';
+import RadioItem from '@src/components/forms/RadioItem.vue';
+import SelectInput from '@src/components/forms/SelectInput.vue';
 import PrunButton from '@src/components/PrunButton.vue';
 import PrunLink from '@src/components/PrunLink.vue';
+import Tooltip from '@src/components/Tooltip.vue';
 import GenerateBraRepairActDialog from '@src/features/basic/bra-generate-repair-act/GenerateBraRepairActDialog.vue';
 import {
   calculateBillAtOffset,
@@ -17,11 +21,37 @@ import type {
   RepairBoardType,
 } from '@src/features/XIT/REPD/entries';
 import { showTileOverlay } from '@src/infrastructure/prun-ui/tile-overlay';
+import { userData } from '@src/store/user-data';
 import { timestampEachMinute } from '@src/utils/dayjs';
 import { fixed0, fixed1, formatCurrency, percent1 } from '@src/utils/format';
 import { sumBy } from '@src/utils/sum-by';
 
 const $style = useCssModule();
+
+// 维修设置原本在 XIT SET → 维修，现搬到本看板左侧总览上方，改完即刻重算看板。
+// 迁移已为存量用户回填，这里再兜一次底，避免控件拿到 undefined。
+userData.settings.repairBoard ??= {
+  useOptimal: true,
+  targetDays: 90,
+  dueSoonDays: 7,
+  arrivalDays: 0,
+  subtractStore: true,
+};
+
+const board = userData.settings.repairBoard;
+
+const arrivalModel = computed({
+  get: () => String(board.arrivalDays),
+  set: (value: string) => {
+    board.arrivalDays = Number(value);
+  },
+});
+
+const arrivalOptions = [
+  { label: '今天', value: '0' },
+  { label: '24 小时后', value: '1' },
+  { label: '48 小时后', value: '2' },
+];
 
 const settings = computed(() => getRepairBoardSettings());
 
@@ -104,17 +134,6 @@ function targetText(base: RepairBoardBase) {
     : `${fixed0(base.targetDay)}（固定）`;
 }
 
-function conditionColor(condition: number) {
-  if (condition < 0.9) {
-    return '#d9534f';
-  }
-  return condition < 0.95 ? '#f7a600' : '#5cb85c';
-}
-
-function barWidth(condition: number) {
-  return `${Math.min(100, Math.max(0, Math.round(condition * 100)))}%`;
-}
-
 function typeStatus(type: RepairBoardType) {
   return repairStatus(type.dueIn, settings.value.dueSoonDays);
 }
@@ -125,6 +144,15 @@ const selectedAccentStyle = { boxShadow: 'inset 3px 0 0 #5aa9e6' };
 // ── 偏移天数：按「飞船 N 天后抵达」实时重算重量 / 体积 / 费用 ──
 const offsetOptions = [0, 1, 2, 3, 5, 7];
 const offsetDays = ref(settings.value.arrivalDays);
+
+// 在上方设置栏改「飞船抵达」时，右侧明细的偏移选择同步到这个默认值；
+// 之后手动点偏移按钮仍可临时覆盖，不回写持久化设置。
+watch(
+  () => settings.value.arrivalDays,
+  days => {
+    offsetDays.value = days;
+  },
+);
 
 const offsetBill = computed(() => {
   const base = selected.value;
@@ -173,6 +201,47 @@ function onGenerateAct(ev: Event) {
   <div v-else-if="bases.length === 0" :class="$style.empty">没有可维修的基地建筑。</div>
   <div v-else :class="$style.layout">
     <div :class="$style.overview">
+      <!-- 维修设置（原 XIT SET → 维修）：独立成栏，置于左侧总览最上方。 -->
+      <div :class="$style.settings" data-rp-repd-settings>
+        <div :class="$style.panelTitle">维修设置</div>
+        <div :class="$style.settingsRows">
+          <div :class="$style.settingItem">
+            <span :class="$style.settingLabel">目标维修日</span>
+            <Tooltip
+              position="bottom"
+              tooltip="开启后，每个基地的目标维修日由插件按整站收益与维修成本算出（与 FLEET 维修列同一套算法）；关闭则统一使用下面的固定天数。游戏里没有 plan 概念，这是 PRUNplanner 最优间隔的替代口径。" />
+            <RadioItem v-model="board.useOptimal" horizontal>按插件算出的最优间隔</RadioItem>
+          </div>
+          <div :class="$style.settingItem">
+            <span :class="$style.settingLabel">固定天数</span>
+            <Tooltip
+              position="bottom"
+              tooltip="关闭最优间隔时使用。填多少天，就把「上次维修后第几天该修」当作目标，到期即变红。" />
+            <NumberInput v-model="board.targetDays" />
+          </div>
+          <div :class="$style.settingItem">
+            <span :class="$style.settingLabel">即将到期阈值</span>
+            <Tooltip
+              position="bottom"
+              tooltip="距离目标日还剩这么多天及以内时，状态标为「即将到期」（黄）。" />
+            <NumberInput v-model="board.dueSoonDays" />
+          </div>
+          <div :class="$style.settingItem">
+            <span :class="$style.settingLabel">飞船抵达</span>
+            <Tooltip
+              position="bottom"
+              tooltip="账单按飞船哪天抵达计算。今天 / 24 小时后 / 48 小时后三档直接取游戏给的维修材料，不再自己用公式折算。" />
+            <SelectInput v-model="arrivalModel" :options="arrivalOptions" />
+          </div>
+          <div :class="$style.settingItem">
+            <span :class="$style.settingLabel">库存抵扣</span>
+            <Tooltip
+              position="bottom"
+              tooltip="开启后，购物清单只列基地现成库存之外还缺的数量；关闭则列出完整账单。" />
+            <RadioItem v-model="board.subtractStore" horizontal>扣掉基地现成库存</RadioItem>
+          </div>
+        </div>
+      </div>
       <div :class="$style.stats">
         <button
           v-for="card in statCards"
@@ -227,19 +296,7 @@ function onGenerateAct(ev: Event) {
               <td :class="$style.numeric" :style="statusStyle(base.status)">
                 {{ remainingText(base.dueIn) }}
               </td>
-              <td :class="$style.numeric">
-                <span :class="$style.condCell">
-                  <span>{{ percent1(base.condition) }}</span>
-                  <span :class="$style.bar">
-                    <span
-                      :class="$style.barFill"
-                      :style="{
-                        width: barWidth(base.condition),
-                        backgroundColor: conditionColor(base.condition),
-                      }" />
-                  </span>
-                </span>
-              </td>
+              <td :class="$style.numeric">{{ percent1(base.condition) }}</td>
               <td :class="$style.numeric">{{ formatCost(base.billCost) }}</td>
             </tr>
           </tbody>
@@ -360,6 +417,50 @@ function onGenerateAct(ev: Event) {
   min-height: 0;
 }
 
+/* ── 维修设置栏（原 XIT SET → 维修）───────────────────────────────────
+   独立成栏放在左栏最上方，横向自适应换行，尽量少占列表高度。
+   字号略收一档，避免把 5 个选项挤成 4~5 行。 */
+.settings {
+  flex: 0 0 auto;
+  font-size: 1em;
+  border: 1px solid #2b485a;
+  border-radius: 3px;
+}
+
+.settingsRows {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  padding: 3px 4px;
+}
+
+.settingItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settingLabel {
+  flex: 0 0 auto;
+  color: #8a9aa8;
+  white-space: nowrap;
+}
+
+/* 游戏原生 input/select 默认 175px，会把 5 个选项挤成一人一行。
+   这里只在本设置栏内收窄，不影响看板其它地方与其它命令窗口。 */
+.settings :global(input),
+.settings :global(select) {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 64px;
+}
+
+.settings :global(select) {
+  width: 116px;
+}
+
 .side {
   display: flex;
   flex: 1 1 0;
@@ -404,7 +505,7 @@ function onGenerateAct(ev: Event) {
 }
 
 .statLabel {
-  font-size: 0.8em;
+  font-size: 1em;
   color: #8a9aa8;
   white-space: nowrap;
 }
@@ -416,7 +517,7 @@ function onGenerateAct(ev: Event) {
 }
 
 .statNote {
-  font-size: 0.75em;
+  font-size: 1em;
   color: #8a9aa8;
   white-space: nowrap;
 }
@@ -473,7 +574,7 @@ function onGenerateAct(ev: Event) {
 .meta {
   padding: 1px 4px;
   color: #8a9aa8;
-  font-size: 0.85em;
+  font-size: 1em;
   white-space: nowrap;
 }
 
@@ -486,14 +587,14 @@ function onGenerateAct(ev: Event) {
 }
 
 .offsetLabel {
-  font-size: 0.8em;
+  font-size: 1em;
   color: #8a9aa8;
   margin-right: 2px;
 }
 
 .offsetBtn {
   padding: 0 5px;
-  font-size: 0.8em;
+  font-size: 1em;
   line-height: 16px;
   color: #bbbbbb;
   background: transparent;
@@ -510,26 +611,6 @@ function onGenerateAct(ev: Event) {
   border-color: #5aa9e6;
   color: #fff;
   background-color: rgba(90, 169, 230, 0.2);
-}
-
-.condCell {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.bar {
-  display: inline-block;
-  width: 34px;
-  height: 4px;
-  border-radius: 2px;
-  background-color: rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-}
-
-.barFill {
-  display: block;
-  height: 100%;
 }
 
 /* 表格统一铺满所属面板，三个模块的表格宽度因此一致。 */

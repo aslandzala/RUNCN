@@ -1085,7 +1085,7 @@ function localizedCategory(o: ArbOpportunity): string {
   min-width: 14px;
   padding: 0 4px;
   border-radius: 2px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
   text-align: center;
   font-weight: bold;

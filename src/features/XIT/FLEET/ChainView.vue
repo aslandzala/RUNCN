@@ -2970,11 +2970,11 @@ function flightTotalText(shipId: string): string {
 
 .opsWarn {
   color: #e8a33d;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .loadSub {
-  font-size: 10px;
+  font-size: 11px;
   color: #8a9aa8;
 }
 

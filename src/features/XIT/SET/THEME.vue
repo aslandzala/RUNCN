@@ -21,6 +21,11 @@ const themes = [
     label: '暖米纸',
     desc: '参考暖色纸张界面：淡米白底、近白卡片、卡其细边框，赭金强调搭配小面积墨绿与暗红；低饱和暖调，黄红异常标记照旧保留。',
   },
+  {
+    id: 'ceramic-colorful',
+    label: '陶瓷白多彩',
+    desc: '暖陶瓷白底 + 近白卡片，8 个低饱和色相只用于分类标签、图表、图标、装饰线与状态提示；按钮/表单/表格按组件类型统一，正文、焦点态与禁用态经 WCAG 对比度校验。',
+  },
 ] as const;
 
 const current = computed(() => userData.settings.theme ?? 'default');
@@ -62,19 +67,24 @@ function reset() {
 <style module>
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  /* min 留 10px 余量：窗口宽高由游戏 inline style 精确控制，不同主题下
+     内容区可能只差 1~2px；用 210px 时陶瓷白主题曾因 426px < 428px
+     从「两行两列」塌成「四行单列」。200px 保证四个主题都是 2×2。 */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 8px;
 }
 
+/* 主题卡片自身也走 token：自定义主题下由 theme.ts 的 --rp-skin-* 提供，
+   default 原样主题回退到游戏原色，视觉不变。 */
 .card {
   display: flex;
   flex-direction: column;
   row-gap: 6px;
   padding: 10px 12px;
-  border: 1px solid rgb(61, 74, 84);
+  border: 1px solid var(--rp-skin-border-strong, rgb(61, 74, 84));
   border-radius: 4px;
-  background: rgb(26, 33, 38);
-  color: inherit;
+  background: var(--rp-skin-panel, rgb(26, 33, 38));
+  color: var(--rp-skin-ink, inherit);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -102,7 +112,7 @@ function reset() {
 }
 
 .cardDesc {
-  color: #999;
+  color: var(--rp-skin-muted, #999);
   font-size: 11px;
   line-height: 1.5;
 }

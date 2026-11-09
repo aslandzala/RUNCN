@@ -8,7 +8,7 @@
 // 到期口径照搬 PRUNplanner 的 FIO Repair 页：年龄（天）+ 目标日 ⇒ 剩余天数。
 // 唯一的差别是目标日的来源——PRUNplanner 从「匹配的 plan 的 Repair Analysis」取，
 // 游戏里没有 plan，这里改用 core/repair-plan.ts 已移植的同款算法算出整站最优间隔，
-// 或用户在 XIT SET → 维修 里设定的固定天数。
+// 或用户在 XIT REPD 左侧「维修设置」栏里设定的固定天数。
 
 import { getBaseAlias } from '@src/core/base-aliases';
 import { getBuildingBuildMaterials, isRepairableBuilding } from '@src/core/buildings';

@@ -237,6 +237,6 @@ function init() {
 features.add(
   import.meta.url,
   init,
-  'BSN 产物自动装船：基地有船停靠时，把该基地产物列的最终产出品静默搬进船货舱（开关在 XIT SET → 功能）。',
+  'BSN 产物自动装船：基地有船停靠时，把该基地产物列的最终产出品静默搬进船货舱（开关在 XIT FB 面板 XIT FLT 标题栏右侧）。',
   true,
 );

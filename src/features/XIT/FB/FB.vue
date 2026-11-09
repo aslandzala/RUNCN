@@ -102,19 +102,30 @@ const selectedNaturalId = computed<string | undefined>(() => {
 // 只看 title 自身的文本节点：base-alias-display 追加的
 // <span data-base-alias>「 · 别名」不属于「原先的中文文字」，必须忽略，
 // 否则中文别名会被误收进标题。
+// SHPI 例外：船名要保留全称（如「S-魔符级」），只去掉末尾的应答编码，
+// 不能像其它磁贴那样只抽汉字，否则 S- 这类船名前缀会被裁掉。
 const CJK_RE = /[\u3400-\u9fff]/g;
+// 原生 SHPI 标题形如「S-魔符级（AVI-07FNL）」。括号里只匹配纯大写字母 /
+// 数字 / 连字符的应答编码，不会误删船名自带的括号备注（含空格的那种）。
+const SHPI_CODE_RE = /\s*[（(][A-Z0-9-]{2,16}[）)]\s*$/i;
 
-function originalChineseOf(title: HTMLElement): string {
+function originalChineseOf(title: HTMLElement, isShip: boolean): string {
   let raw = '';
   for (const node of title.childNodes) {
     if (node.nodeType === Node.TEXT_NODE) {
       raw += node.textContent ?? '';
     }
   }
+  raw = raw.trim();
+  if (isShip) {
+    // 只抽汉字会把「S-魔符级」裁成「魔符级」，丢掉 S- 这类船名前缀
+    // （签名字符）。这里保留船名全称，仅隐去末尾应答编码；纯英文船名
+    // （如 LCB-D（AVI-06CRH））同样保留船名，标题栏不会变空。
+    return raw.replace(SHPI_CODE_RE, '').trim() || raw;
+  }
   const chinese = raw.match(CJK_RE)?.join('') ?? '';
-  // SHPI 的标题是船名（如 LCB-D（AVI-06CRH）），没有汉字时保留原名，
-  // 否则标题栏会变空、只剩状态徽标和右侧按钮。
-  return chinese || raw.trim();
+  // 其余磁贴没有汉字时保留原名，否则标题栏会变空。
+  return chinese || raw;
 }
 
 function applyChineseTitle(element: HTMLElement) {
@@ -123,7 +134,10 @@ function applyChineseTitle(element: HTMLElement) {
   if (!title) {
     return;
   }
-  const wanted = originalChineseOf(title);
+  // 命令文本虽被 CSS display:none 隐藏，textContent 仍可读（collectTiles 也靠它认领），
+  // 用它区分 SHPI 船名磁贴：只有它需要保留 S- 这类非汉字前缀。
+  const command = frame ? (_$(frame, C.TileFrame.cmd)?.textContent ?? '').trim() : '';
+  const wanted = originalChineseOf(title, /^SHPI\b/i.test(command));
   if (title.textContent === wanted) {
     return;
   }
@@ -675,7 +689,8 @@ function tick() {
       syncCommand(key, chosen);
     }
     adopt(key, chosen);
-    // 五类磁贴的标题栏一律只留原先的中文文字；SHPI 船名无汉字时保留原名。
+    // 五类磁贴的标题栏一律只留原先的中文文字；SHPI 例外保留船名全称
+    // （含 S- 前缀），只隐去末尾应答编码。
     // 末尾命令文本由 refined-prun.css 的 display:none 隐藏（textContent 保留，
     // collectTiles 还要靠它认领磁贴）。
     applyChineseTitle(chosen);
@@ -986,7 +1001,7 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
   padding: 0 5px;
   border: 1px solid currentColor;
   border-radius: 2px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
   line-height: 1;
 }

@@ -965,7 +965,7 @@ function isBest(component: { bestExchange?: string }, code: string) {
 
 .currencyTag {
   color: rgb(148, 158, 166);
-  font-size: 10px;
+  font-size: 11px;
   margin-left: 3px;
   font-weight: normal;
 }

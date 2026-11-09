@@ -204,6 +204,7 @@ function onTrialClick() {
       <PrunButton
         v-if="trialNaturalId"
         primary
+        :class="$style.compareButton"
         data-tooltip="按当前星球的补给需求，用游戏实时盘口对比各交易所采购成本"
         data-tooltip-position="top"
         @click="onTrialClick"
@@ -252,12 +253,22 @@ function onTrialClick() {
 </template>
 
 <style module>
-/* 游戏自定义垂直滚动条轨道（ScrollView__track-vertical，6px、z-index:2）会浮在
-   内容右侧，正好压住被 .spacer 推到最右的「比价」按钮右边缘。给工具栏留出
-   比原生 5px 更宽的右侧内边距，把整个按钮推到轨道左侧。 */
+/* 「比价」被 .spacer 推到工具栏最右。原来留 16px 时按钮比下方表格右缘
+   缩进一大截，视觉不统一。但窗口宽度不同时，6px 的自定义垂直滚动条轨道
+   （ScrollView__track-vertical）会横向压进内容区最多约 9px：留 4px 时
+   实测按钮最右 5px 正好被轨道盖住并截走点击（轨道在更高层 stacking
+   context，单靠按钮 z-index 提不上去）。10px 是在最窄实测窗口下也能让
+   按钮整体停在轨道左侧的最小留白，同时比原来的 16px 右移了 6px。 */
 .burnFilter {
-  padding-right: 16px !important;
+  padding-right: 10px !important;
   box-sizing: border-box;
+}
+
+/* 按钮抬到轨道之上作为附加保险：宽窗口下轨道不压进内容区时，按钮中心
+   与右缘都能稳定命中；窄窗口下则由上面的 10px 留白从几何上避开。 */
+.compareButton {
+  position: relative;
+  z-index: 3;
 }
 
 .fakeRow {
@@ -287,4 +298,8 @@ function onTrialClick() {
 .radioItemWithTooltip {
   padding: 0;
 }
+
+/* 悬浮说明的指示三角已由 refined-prun.css 的全局 [data-tooltip]::after
+   规则统一隐藏（覆盖 ⓘ 图标、比价按钮、生产/劳动力等所有触发元素），
+   这里不再逐处打补丁；::before 说明文字框保持原样。 */
 </style>

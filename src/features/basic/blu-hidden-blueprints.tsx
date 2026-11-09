@@ -2,18 +2,23 @@ import { computed } from 'vue';
 import { userData } from '@src/store/user-data';
 import { hasMountedUi } from '@src/utils/mount-ui-once';
 import { watchEffectWhileNodeAlive } from '@src/utils/watch';
-import fa from '@src/utils/font-awesome.module.css';
 import $style from './blu-hidden-blueprints.module.css';
 
 // BLU 的显隐是「固定的」：写入 userData.settings 后由 user-data-serializer 自动
-// 落盘到 chrome.storage.local，刷新页面 loadUserData 原样恢复。只有手动点击眼睛
-// 按钮 / 显示开关才会改变，服务器数据更新、窗口重开、排序变化都不会重置。
+// 落盘到 chrome.storage.local，刷新页面 loadUserData 原样恢复。只有手动点击
+// 「隐藏」按钮 / 右上角状态按钮才会改变，服务器数据更新、窗口重开、排序变化都不会重置。
 const hidden = computed(() => userData.settings.hiddenBlueprints ?? []);
 const hiddenSet = computed(() => new Set(hidden.value));
 const showHidden = computed({
   get: () => userData.settings.showHiddenBlueprints ?? false,
   set: (value: boolean) => (userData.settings.showHiddenBlueprints = value),
 });
+// 用户视角的「隐藏功能是否生效」。数据层字段叫 showHiddenBlueprints（是否把
+// 被隐藏的蓝图显示出来），语义正好相反：字段为 false 时隐藏才真正生效。
+// 右上角按钮文字固定为「隐藏」，靠 hiddenActive 决定选中态：
+//   选中 = 隐藏生效，被标记的蓝图不出现在列表里（showHidden=false）
+//   未选中 = 隐藏停用，被标记的蓝图淡显出来，方便一键恢复（showHidden=true）
+const hiddenActive = computed(() => !showHidden.value);
 
 function toggleHidden(id: string) {
   const list = hidden.value;
@@ -56,11 +61,15 @@ function blueprintIdOf(row: HTMLTableRowElement): string | null {
 }
 
 function onTileReady(tile: PrunTile) {
-  // 两个眼睛按钮只写 data-tooltip，绝不写 title：浏览器原生 title 会额外弹一个
-  // 深色文本框，和游戏 [data-tooltip] 伪元素的浅色浮窗同时出现、文案还不一样。
-  // 无障碍名称改用 aria-label，它不会触发任何浮窗。
-  // 「新建」按钮左边：直接把开关塞进按钮所在的 ActionBar__element，
-  // 无论外层 flex 怎么对齐，两个按钮都紧邻、开关恒在左侧。
+  // 两个按钮都是纯文字，且刻意不写 title / data-tooltip / data-tooltip-position：
+  // 浏览器原生 title 与游戏 [data-tooltip] 伪元素都会弹浮窗，两者还会同时出现、
+  // 文案不一致。按用户要求完全移除鼠标浮窗，无障碍名称改用 aria-label（不弹窗）。
+  // 「新建」按钮左边：直接把状态按钮塞进按钮所在的 ActionBar__element，
+  // 无论外层 flex 怎么对齐，两个按钮都紧邻、状态按钮恒在左侧。
+  // 右上角与表体一样：文字固定「隐藏」二字 + CSS 定宽，靠选中态表达开关，
+  // 不写「开 / 关」字样。data-rp-blu-show 保留数据层原语义（on=显示隐藏项），
+  // 另给 data-rp-blu-hidden-active 表示按钮选中态（on=隐藏生效），全局 CSS
+  // 按该属性画反色实底。表体行按钮同样固定「隐藏」，用 aria-pressed 表达选中。
   // 游戏是 React 异步渲染，onTileReady 触发时 ActionBar 可能还没出现，
   // 所以订阅新出现的 button 而不是当场查询一次，刷新后首次加载也不会漏。
   subscribe($$(tile.frame, 'button'), button => {
@@ -76,21 +85,25 @@ function onTileReady(tile: PrunTile) {
         type="button"
         data-rp-ui="blu-show-hidden-toggle"
         data-rp-blu-show={showHidden.value ? 'on' : 'off'}
-        class={[C.Button.btn, $style.eyeButton, $style.toggle, fa.solid]}
-        data-tooltip-position="bottom"
-        data-tooltip={
-          showHidden.value
-            ? `当前显示含 ${hidden.value.length} 个隐藏蓝图的完整清单；点击恢复只显示未隐藏蓝图`
-            : `当前已隐藏 ${hidden.value.length} 个蓝图；点击显示完整清单以便恢复`
-        }
-        aria-label="显示或隐藏已隐藏的蓝图"
+        data-rp-blu-hidden-active={hiddenActive.value ? 'on' : 'off'}
+        class={[
+          C.Button.btn,
+          $style.textButton,
+          $style.toggle,
+          hiddenActive.value ? $style.isOn : '',
+        ]}
+        aria-label="隐藏蓝图开关"
+        aria-pressed={hiddenActive.value}
         onClick={() => (showHidden.value = !showHidden.value)}>
-        {showHidden.value ? '\uf06e' : '\uf070'}
+        隐藏
       </button>
     )).prependTo(host);
   });
 
-  // 表体「指令」列：每个蓝图行最前面加一颗眼睛。表头行（只有 th）跳过。
+  // 表体「指令」列：每个蓝图行最前面加一个固定文字「隐藏」的切换按钮。
+  // 按用户要求做成「选中模式」：文字永远是「隐藏」两字，已隐藏的行按钮呈
+  // 选中态（填充底 + 强调色 + 加粗 + 下划线）并用 aria-pressed=true 表达，
+  // 再点一下取消隐藏。表头行（只有 th）跳过。
   subscribe($$(tile.anchor, 'tr'), row => {
     if (!row.querySelector('td') || hasMountedUi(row, 'blu-hide-button')) {
       return;
@@ -111,22 +124,17 @@ function onTileReady(tile: PrunTile) {
           type="button"
           data-rp-ui="blu-hide-button"
           data-rp-blu-hidden={isHidden ? 'on' : 'off'}
-          class={[
-            $style.eyeButton,
-            fa.solid,
-            isHidden ? $style.isHidden : '',
-          ]}
-          data-tooltip-position="bottom"
-          data-tooltip={isHidden ? '取消隐藏此蓝图' : '从清单隐藏此蓝图'}
-          aria-label={isHidden ? '取消隐藏此蓝图' : '从清单隐藏此蓝图'}
+          class={[$style.textButton, $style.rowBtn, isHidden ? $style.selected : '']}
+          aria-label="隐藏此蓝图"
+          aria-pressed={isHidden}
           onClick={() => toggleHidden(id)}>
-          {isHidden ? '\uf070' : '\uf06e'}
+          隐藏
         </button>
       );
     }).prependTo(cell);
 
     // 显隐完全由持久化状态驱动：开关关闭时隐藏行不渲染，打开时淡显并保留
-    // 眼睛按钮，方便一键恢复。React 不给 tr 写 inline display，这里直接改
+    // 文字按钮，方便一键恢复。React 不给 tr 写 inline display，这里直接改
     // style 不会被重渲染覆盖；节点被移除时 watch 自动停止。
     watchEffectWhileNodeAlive(row, () => {
       const isHidden = hiddenSet.value.has(id);
@@ -145,5 +153,5 @@ function init() {
 features.add(
   import.meta.url,
   init,
-  'BLU：在「指令」列给每个蓝图加隐藏眼睛按钮，「新建」左侧加显示隐藏蓝图开关；显隐持久化，XIT BPC 蓝图下拉同步过滤。',
+  'BLU：「指令」列每行一个固定文字「隐藏」的选中态按钮（选中=该行已隐藏），「新建」左侧一个同款定宽「隐藏」总开关（选中=隐藏生效、隐藏行不显示；未选中=隐藏行淡显可恢复）；两者文字都不写「开 / 关」，无鼠标浮窗，显隐持久化，XIT BPC 蓝图下拉同步过滤。',
 );

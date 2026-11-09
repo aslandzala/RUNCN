@@ -1099,9 +1099,15 @@ async function importDispatchConfig() {
 
 .invHeaderCol {
   width: 67%;
+  white-space: nowrap;
 }
 
 .warHeaderCol {
   width: 33%;
+  /* 只打开「仓储」时表格里没有 67% 的库存列，十几个 .narrowCol(width:0) 会把
+     这一列挤到不足两个汉字宽，「仓储」折成上下两行，表头行变高、表体随之下移
+     一格。nowrap 把 min-content 抬到两字宽，auto 布局就会给足宽度，行高恒定。 */
+  min-width: 28px;
+  white-space: nowrap;
 }
 </style>

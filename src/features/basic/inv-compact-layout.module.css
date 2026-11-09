@@ -1,18 +1,25 @@
-/* 按钮绝对定位到 frame 内部右上角：标题栏下方那一行（上下文命令行）的右端。
-   frame 自身 position:relative，因此不依赖 TileFrame.controls（FB 会隐藏它）。
+/* 固定文字「紧凑排列」+ 选中态（与 BLU「隐藏」/ FLT「产出装船」同构）。
+   选中态规则会把 font-weight 提到 700，汉字字宽可能微调，所以直接锁死宽度，
+   保证切换时按钮长度完全不跳动。
+   按钮绝对定位到 TileFrame__body（position:relative）内部右上角：body 顶部 +2px
+   正好是 StoreView__row 的第一行，也就是「Animus a (VH-874a)（制造）」站点名行。
+   重量 / 体积已被 inv-compress-inventory-info 压到该行的第二行，所以第一行右侧
+   是空白，按钮贴右放置不会挡住任何文字。挂在 body 上（而非 frame 上）还能让
+   按钮随上下文命令行显隐、窗口高度变化一起移动，不会出现跳位。
+   回退挂到 frame 时由 tsx 把 --rp-inv-compact-top 设成 47px 补偿标题栏高度。
 
-   垂直方向必须与该行的 ContextControls__item 完全重合，否则展开上下文菜单时
-   按钮会明显高出一截。游戏原生盒模型：header 高 30px → 上下文容器从
-   frame+30px 开始、padding-top 1px → 每个 item 位于 frame+31px，高 15px
-   （10px 字 / 11px 行高 / 上下 1px border）。这里就让 top=31px、height=15px、
-   line-height=11px，配合 align-items:center 使文字基线也一致；
-   容器被「最小化上下文控件」隐藏时按钮位置不变，不会跳动。 */
+   高度 15px 与该行 16px 的 capacity 行一致，line-height 11px 配合
+   align-items:center 使文字基线也对齐；按钮在 DOM 中位于 TileFrame__anchor
+   之后且带 z-index，不会被 anchor 盖住。 */
 .toggle {
   position: absolute;
-  top: 31px;
+  top: var(--rp-inv-compact-top, 2px);
   right: 6px;
   z-index: 5;
   height: 15px;
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
   padding: 0 6px;
   margin: 0;
   font-size: 10px;
@@ -22,11 +29,11 @@
   box-sizing: border-box;
 }
 
-/* 激活态用下划线而不是底色：主题引擎会重刷按钮底色/阴影，文字下划线不会被覆盖。 */
+/* 激活态只有一条下划线：不加底色、不改文字颜色、不改字重。
+   下划线用主题强调色，但按钮本身的配色在三态之间完全不变。 */
 .active {
   text-decoration: underline;
   text-decoration-color: rgb(var(--rp-accent-rgb));
   text-decoration-thickness: 2px;
   text-underline-offset: 2px;
-  font-weight: 600;
 }

@@ -40,6 +40,17 @@ async function startup() {
     userData = undefined;
   }
   await waitDocumentReady();
+  // 首屏防闪：陶瓷白多彩主题的 token 定义在 refined-prun.css 里，只要
+  // data-theme 在游戏脚本恢复执行、React 首次绘制之前就位，第一帧就是暖白底，
+  // 不会先闪一帧原生深色。其它主题保持原有加载时序（由 theme.ts 标记），
+  // 以免改变现有主题的首屏行为。
+  const storedTheme =
+    userData && typeof userData === 'object' && 'settings' in userData
+      ? (userData as { settings?: { theme?: unknown } }).settings?.theme
+      : undefined;
+  if (storedTheme === 'ceramic-colorful') {
+    document.documentElement.dataset.rpTheme = storedTheme;
+  }
   const container = document.createElement('refined-prun');
   document.documentElement.appendChild(container);
   const now = Date.now();
