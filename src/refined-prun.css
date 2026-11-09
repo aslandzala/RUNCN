@@ -35,7 +35,7 @@ html {
      · 消耗 = 本主题红       · 其他 = 本主题中性灰
      浅色明亮 light（冷调）：#33566f / #2f6b48 / #9c3b3b / #4a5863
      暖米纸   paper（暖调）：#9b6b2f / #4a7048 / #9b4741 / #756b5d
-   陶瓷白多彩本来就用 --rp-cc-cat-* 给四类各配一色，且 CERAMIC_CSS 的
+   陶瓷白多彩本来就用 --rp-cc-cat-* 给四类各配一色，且组件映射骨架的
    5 级属性选择器会直接覆盖 background-color，这里不必也不应再改它。
    变量值是纯 RGB 三元组而非 # / rgb() 颜色字面量；选择器精确写成
    html[data-rp-theme='…']，恰好命中主题引擎的 TOKEN_RULE_RE 而被跳过扫描，
@@ -380,31 +380,39 @@ table td {
   display: none !important;
 }
 
-/* ── 6) XIT 自研面板的可读性兜底（仅自定义主题，不碰游戏原生界面） ──────
+/* ── 6) XIT 自研面板 + 原生 FIN 类财务窗口的可读性兜底（仅自定义主题） ───
    筛查结论：三套自定义主题下，XIT 面板里最普遍的低可读性来自两类根因——
    (a) refined-prun.css 顶部 html{} 定义的 --rp-color-accent-primary 会被
        主题引擎的 CSSOM 扫描重映射成近白色（light 下实测 #e7eef4），
        凡拿它当文字色（NX 空间站列、PLAN 高亮等）就是浅字压浅底；
    (b) 组件里 rgba(255,255,255,0.0x) 的极淡行线、th / 辅助文字的
        opacity:0.5~0.8，在浅底上都会被冲淡到看不见。
-   .rp-command-XIT 是所有 XIT 命令窗口 TileFrame 的共同类名，用它把作用域
-   严格限定在插件自研面板；重复 html[data-rp-theme] 把特异性抬到 (0,5,x)，
-   压过主题引擎运行时插入的 !important 重映射规则和 CSS Modules 局部规则。
-   只补文字色 / 边界 / 不透明度，不加斑马纹、不改字号、不动按钮。
+   rp-command-XIT 是所有 XIT 命令窗口 TileFrame 的共同类名；原生 FIN /
+   FINBS / FINIS / FINLA / CORPFIN 则是 rp-command-FIN* / -CORPFIN。
+   两类界面复用同一批游戏原生财务 CSS 类（FinanceOverviewPanel /
+   IncomeStatementPanel / LiquidAssetsPanel / ColoredValue），只给 XIT 兜底
+   会让原生 FIN 与 XIT FINxx 的格式分裂（2026-11 真机基线，light：原生表头
+   透明 + 400 字重 + rgb(169,190,205) 线，XIT 表头 rgb(219,231,240) + 600
+   + rgb(127,156,178)；原生 --rp-color-green=#e8f2eb 近白、
+   --rp-color-text=rgb(175,175,175)，XIT 分别是 #2f6b48 / #26333d）。
+   所以用 :is() 把两类窗口合并进同一组规则，一处改动两边生效。
+   重复 html[data-rp-theme] 把特异性抬到 (0,5,x)，压过主题引擎运行时插入的
+   !important 重映射规则和 CSS Modules 局部规则。只补文字色 / 边界 / 不透明度，
+   不加斑马纹、不改字号、不动按钮；原样主题（无 data-rp-theme）完全不生效。
 
-   2026-11 全库筛查补充（本轮）：主题引擎会把自己注入的 --rp-color-* 变量
+   2026-11 全库筛查补充：主题引擎会把自己注入的 --rp-color-* 变量
    也二次重映射成近白色 —— light 真机实测 --rp-color-green=#e8f2eb、
    --rp-color-orange=#e7eef4、--rp-color-accent-primary=#e7eef4、
    --rp-color-text=rgb(175,175,175)。组件把这些变量当「文字色」用时就是
    浅字压浅底（CONTS「贷款发放/供应」1.01:1、PROD 订单状态、ORG 发布提示、
    conts-shared 的 deadlineCell 等）。--rp-skin-* 系列不受扫描影响，仍是深字。
-   所以在 XIT 面板内把被污染的变量局部重定义一遍：一处覆盖所有引用它们的
+   所以在面板内把被污染的变量局部重定义一遍：一处覆盖所有引用它们的
    组件（包括 PLAN/CQ/PROFIT/BSN/ORG/CONTS/PROD 以及 10+ 个复制粘贴深色面板
-   样式的 SFC），不必逐文件改；原样主题与游戏原生界面完全不受影响。
+   样式的 SFC），不必逐文件改；原样主题与其它游戏原生界面不受影响。
    ProgressBar* 把同名变量当进度条填充色用，原先被污染成近白同样看不见，
    重定义成深色语义色后反而恢复可见，不是副作用。 */
-html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-command-XIT {
-  /* 局部重定义，游戏原生界面里同名的变量不受影响。 */
+html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) {
+  /* 局部重定义：只在上面两类窗口内生效，其它游戏原生界面不受影响。 */
   --rp-color-accent-primary: var(--rp-skin-selection, currentColor);
   --rp-color-text: var(--rp-skin-ink, currentColor);
   --rp-color-text-component: var(--rp-skin-ink, currentColor);
@@ -420,7 +428,7 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-command-XIT {
    精确排除三类「故意低透明度」：拖拽把手（grip，opacity:0 本就该隐藏）、
    禁用控件、以及 CONTS 的 dimmed 项（配 grayscale 表示条件未满足）。 */
 html[data-rp-theme][data-rp-theme][data-rp-theme]
-  .rp-command-XIT
+  :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
   :is(span, div, td, th, p, label, small, b, strong, em, a, li, h1, h2, h3, h4, h5, h6, button, summary, details):not(
     [class*='grip']
   ):not([class*='Grip']):not([class*='dimmed']):not([disabled]):not([class*='disabled']) {
@@ -443,13 +451,13 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-tooltip-icon {
 /* 输入框 placeholder：BSN 等用 rgba(255,255,255,0.35)，浅底上等于隐形。
    placeholder 不是文本节点，静态遍历发现不了，这里单独兜底。 */
 html[data-rp-theme][data-rp-theme][data-rp-theme]
-  .rp-command-XIT
+  :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
   :is(input, textarea)::placeholder {
   color: var(--rp-skin-muted, currentColor) !important;
   opacity: 1 !important;
 }
 
-html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-command-XIT table th {
+html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) table th {
   color: var(--rp-skin-ink, inherit) !important;
   opacity: 1 !important;
   background-color: var(--rp-skin-panel-strong, transparent) !important;
@@ -457,7 +465,7 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-command-XIT table th {
   font-weight: 600 !important;
 }
 
-html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-command-XIT table td {
+html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) table td {
   border-bottom: 1px solid var(--rp-skin-border, currentColor) !important;
 }
 
@@ -465,7 +473,7 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-command-XIT table td {
    完全消失，卡片边界分不出。用 [class*='card'|'panel'] 命中 CSS Modules
    哈希类名里保留的语义片段，只改 border-color，不动背景与盒模型。 */
 html[data-rp-theme][data-rp-theme][data-rp-theme]
-  .rp-command-XIT
+  :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
   :is([class*='card'], [class*='Card'], [class*='panel'], [class*='Panel'], [class*='section'], [class*='Section']) {
   border-color: var(--rp-skin-border, currentColor) !important;
 }
@@ -475,7 +483,7 @@ html[data-rp-theme][data-rp-theme][data-rp-theme]
    浅底上连写什么都读不出。这里统一改成「浅底 + 主题次要深字 + 浅边框」，
    禁用感由底色/边框表达，文字保持 4.5:1 以上。沿用 CXOS 已验证的范式。 */
 html[data-rp-theme][data-rp-theme][data-rp-theme]
-  .rp-command-XIT
+  :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
   :is(button, input, select, textarea):disabled {
   opacity: 1 !important;
   color: var(--rp-skin-muted, currentColor) !important;
@@ -485,8 +493,106 @@ html[data-rp-theme][data-rp-theme][data-rp-theme]
 
 /* 空态 / 提示单元格常用内联 opacity 冲淡文字，只把 opacity 拉回 1，
    文字色仍由原规则或上面的 token 决定，不强行改语义色。 */
-html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-command-XIT :is(td, th)[style*='opacity'] {
+html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) :is(td, th)[style*='opacity'] {
   opacity: 1 !important;
+}
+
+/* ── 7) INV / SHPI 窗口滚动条：只留一条按需显示的窄条 ─────────────────
+   游戏原生 ScrollView 会同时画两套滚动条：① 自绘的 6px 轨道
+   （ScrollView__track-* / thumb-*）；② ScrollView__view 上
+   overflow:scroll 触发的浏览器滚动条。非紧凑模式靠 -15px 负 margin
+   把②推出可视区，紧凑模式把负 margin 清零后②重新出现，两套叠加在右侧。
+   overflow:scroll 即使内容没溢出也强制画轨道（真机 clientH === scrollH
+   时仍有 4px 条），这就是「物料已全显却出现滚动条」。
+   修法：view 改 auto 按需显示；隐藏自绘 track / thumb，只保留
+   ::-webkit-scrollbar 的 4px 无箭头细条；并把主题引擎注入的
+   html[data-rp-theme] * { scrollbar-color: ... } 在本作用域清回 auto
+   （非 auto 的标准属性会让 Chromium 忽略 ::-webkit-scrollbar，
+   改画 ≈10px 带箭头的标准条）。
+   作用域用 rp-command-INV / rp-command-SHPI：全局独立窗口与 FB 面板
+   内嵌磁贴的 frame 都带这个类，一处改动两边生效。不带主题前缀，
+   因为原样主题同样有双轨叠加，且这里只改滚动条、不动任何配色。 */
+:is(.rp-command-INV, .rp-command-SHPI) [class*='ScrollView__view'] {
+  overflow: auto !important;
+  scrollbar-width: auto !important;
+  scrollbar-color: auto !important;
+}
+
+:is(.rp-command-INV, .rp-command-SHPI) :is([class*='ScrollView__track'], [class*='ScrollView__thumb']) {
+  display: none !important;
+}
+
+:is(.rp-command-INV, .rp-command-SHPI) [class*='ScrollView__view']::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+  background: transparent;
+}
+
+/* 上下箭头按钮一律不渲染：用户要的是「窄的、上下不带箭头」的细条。 */
+:is(.rp-command-INV, .rp-command-SHPI) [class*='ScrollView__view']::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0;
+  height: 0;
+}
+
+:is(.rp-command-INV, .rp-command-SHPI) [class*='ScrollView__view']::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:is(.rp-command-INV, .rp-command-SHPI) [class*='ScrollView__view']::-webkit-scrollbar-thumb {
+  background-color: var(--rp-skin-scroll-thumb, currentColor);
+  border: 0 !important;
+  border-radius: 3px;
+}
+
+/* ── 8) 原生命令执行状态斜纹遮罩（仅自定义主题） ───────────────────────
+   COGCPEX / MTRA / PROD 等原生命令点执行按钮后，窗口会盖一层
+   ActionFeedback__overlay：运行中 progress 是橙色斜纹滚动、完成
+   success 是绿色静止斜纹。游戏原生把颜色写死在 repeating-linear-gradient
+   的字面量里（rgba(240,173,78,.5) / rgba(92,184,92,.5)），主题引擎
+   collect() 把 background-image 判为 gradient 角色，按色相换成
+   palette.*.gradient 的近白色并带 !important 注入，三套自定义主题下
+   两态全糊成白底白纹。
+   注意这不是 --rp-color-* 被污染那条路径：遮罩不引用任何变量，
+   所以第 6) 组的变量重定义覆盖不到；且 COGCPEX 是 rp-command-COGCPEX，
+   不在 XIT / FIN 作用域内。
+   修法：按类名直接覆盖 background-color / background-image，颜色走
+   --rp-skin-action-unload（运行中）/ -flight（完成）/ -fuel（失败），
+   三套主题都定义了这三个深色语义色；整条值用 color-mix + var()，
+   不含颜色字面量，不会被 collect() 二次重映射。只改颜色，不动
+   animation / background-position，保留「运行中滚动、完成静止」。
+   重复 html[data-rp-theme] 抬到 (0,4,x)，压过引擎 (0,1,0) 的 !important。 */
+html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__progress'] {
+  background-color: color-mix(in srgb, var(--rp-skin-action-unload, currentColor) 30%, transparent) !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 25%,
+    color-mix(in srgb, var(--rp-skin-action-unload, currentColor) 50%, transparent) 25%,
+    color-mix(in srgb, var(--rp-skin-action-unload, currentColor) 50%, transparent) 50%
+  ) !important;
+}
+
+html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__success'] {
+  background-color: color-mix(in srgb, var(--rp-skin-action-flight, currentColor) 30%, transparent) !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 25%,
+    color-mix(in srgb, var(--rp-skin-action-flight, currentColor) 50%, transparent) 25%,
+    color-mix(in srgb, var(--rp-skin-action-flight, currentColor) 50%, transparent) 50%
+  ) !important;
+}
+
+html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__error'] {
+  background-color: color-mix(in srgb, var(--rp-skin-action-fuel, currentColor) 30%, transparent) !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 25%,
+    color-mix(in srgb, var(--rp-skin-action-fuel, currentColor) 50%, transparent) 25%,
+    color-mix(in srgb, var(--rp-skin-action-fuel, currentColor) 50%, transparent) 50%
+  ) !important;
 }
 
 /* ── 原版 INV 命令窗口：BRN 排序的分组名换成 FB 同款分类名外观 ──────────

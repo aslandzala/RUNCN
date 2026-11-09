@@ -877,13 +877,23 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* 内嵌组件原本是透明 + 0 边框，BS / INV / BURN / FLT / SHPI 连成一片。
-     用主题边框、圆角和极淡底色把每个槽位分出卡片边界；颜色走 --rp-skin-*，
-     三套主题都协调，原样主题回退到中性灰蓝。 */
-  border: 1px solid var(--rp-skin-border-strong, #7f9cb2);
+  /* 槽位底色/描边只在自定义主题下存在：原样主题没有 --rp-skin-*，
+     旧写法回退近白 #e8edf1，而 BS / BURN 内嵌磁贴自带 6px 外边距、
+     比槽位窄 14px，浅底从四周露出来就是一圈白色宽边（INV / FLT 已
+     清零外边距、铺满槽位，所以看不到）。改成 transparent 回退，
+     并统一清零所有内嵌磁贴的外边距，让四类槽位严格铺满、边界一致。
+     值里不写裸色字面量，避免被主题引擎的 CSSOM 扫描二次重映射。 */
+  border: 1px solid var(--rp-skin-border-strong, transparent);
   border-radius: 3px;
-  background-color: var(--rp-skin-panel, #e8edf1);
+  background-color: var(--rp-skin-panel, transparent);
   box-sizing: border-box;
+}
+
+/* 游戏原生 Tile__tile 有 6px 外边距：不清零的话 BS / BURN 比槽位窄 14px，
+   槽位底色就会露成宽边。FLT / 主 INV 槽下面各有专属 margin:0 规则，
+   这里统一兜住其余槽位；四条规则同值，不改变已有高度补偿逻辑。 */
+.slot [class*='Tile__tile'] {
+  margin: 0 !important;
 }
 
 /* FLT 最后一行被裁半截的根因（两层原生样式叠加，与滚动条无关）：

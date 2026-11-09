@@ -1,6 +1,12 @@
 import { watchEffect } from 'vue';
 import { userData } from '@src/store/user-data';
-import { buildCeramicSkin, CERAMIC_CSS, CERAMIC_THEME_ID } from './theme-ceramic';
+import { buildCeramicSkin, buildComponentCss } from './theme-ceramic';
+import {
+  CUSTOM_THEME_ID_SET,
+  DEFAULT_THEME_ID,
+  THEMES,
+  usesTokenPalette,
+} from './theme-registry';
 
 // 界面主题：不再使用 html 上的 invert/hue-rotate 滤镜，而是直接改写颜色。
 // 扫描页面样式表，把每条声明里的颜色按「角色」重映射到一套低饱和浅色皮肤：
@@ -243,12 +249,12 @@ const SKINS: Record<string, Skin> = {
   },
 };
 
-// 陶瓷白多彩主题的颜色不写死在 JS 里：每次生成覆盖表时从 CSS 语义 token
-// 读取，保证色板只有一处定义、切换后立刻跟随 token 变化。
-const SKIN_IDS = new Set<string>([...Object.keys(SKINS), CERAMIC_THEME_ID]);
+// 可识别的自定义主题集合由注册表派生。skin 模式主题必须同时在上面的 SKINS
+// 里提供色板；token 模式主题由 buildCeramicSkin() 从 CSS token 组装。
+const SKIN_IDS = CUSTOM_THEME_ID_SET;
 
 function skinFor(theme: string): Skin | undefined {
-  return theme === CERAMIC_THEME_ID ? buildCeramicSkin() : SKINS[theme];
+  return usesTokenPalette(theme) ? buildCeramicSkin() : SKINS[theme];
 }
 
 // 控件规则两套皮肤共用，颜色全部走 --rp-skin-* 变量。
@@ -822,7 +828,7 @@ function semanticOverride(
 }
 
 // 主题自己的 token 定义块（refined-prun.css 里的
-// html[data-rp-theme='ceramic-colorful'] { ... }）存的是皮肤色值本身，
+// html[data-rp-theme='<id>'] { ... }）存的是皮肤色值本身，
 // 不能被当成「游戏原生颜色」重新映射，否则整张色板会被压成中性灰。
 // 只跳过精确的 token 规则，组件映射规则照常参与扫描。
 const TOKEN_RULE_RE = /^html\[data-rp-theme=[^\]]+\](?:\s+body)?$/;
@@ -926,7 +932,7 @@ function init() {
   let timer: number | undefined;
 
   const apply = () => {
-    const theme = userData.settings.theme ?? 'default';
+    const theme = userData.settings.theme ?? DEFAULT_THEME_ID;
     if (!SKIN_IDS.has(theme)) {
       style.textContent = '';
       delete document.documentElement.dataset.rpTheme;
@@ -934,15 +940,21 @@ function init() {
     }
     // 先标记 data-theme，新主题的 token 才已生效，skinFor 才能读到色值。
     document.documentElement.dataset.rpTheme = theme;
-    const skin = skinFor(theme)!;
+    const skin = skinFor(theme);
+    if (!skin) {
+      // 注册表声明了主题但色板缺失时安全降级为原样，避免 skin.vars 崩溃。
+      style.textContent = '';
+      delete document.documentElement.dataset.rpTheme;
+      return;
+    }
     // 覆盖表在前、主题变量与控件规则在后，保证强调色和控件层级以主题为准。
-    // CERAMIC_CSS 最后：同特异性下由它决定按钮/控件/表格的最终外观。
-    const componentCss = theme === CERAMIC_THEME_ID ? `\n${CERAMIC_CSS}` : '';
+    // 组件映射骨架最后：同特异性下由它决定按钮/控件/表格的最终外观。
+    const componentCss = usesTokenPalette(theme) ? `\n${buildComponentCss(theme)}` : '';
     style.textContent = `${buildCss(skin)}\n${tokensFor(theme, skin)}\n${CONTROL_CSS}${componentCss}`;
   };
 
   watchEffect(() => {
-    const theme = userData.settings.theme ?? 'default';
+    const theme = userData.settings.theme ?? DEFAULT_THEME_ID;
     apply();
     if (!SKIN_IDS.has(theme)) {
       observer?.disconnect();
@@ -970,5 +982,5 @@ function init() {
 features.add(
   import.meta.url,
   init,
-  '界面主题：切换整套界面配色（原样 / 浅色明亮 / 暖米纸 / 陶瓷白多彩），直接改颜色，保留期限告警的黄红标记，不影响图片与数据状态色。',
+  `界面主题：切换整套界面配色（${THEMES.map(t => t.label).join(' / ')}），直接改颜色，保留期限告警的黄红标记，不影响图片与数据状态色。`,
 );

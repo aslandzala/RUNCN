@@ -8,6 +8,7 @@ The project is a browser extension for the game. Throughout the chat and the doc
 - **Code review / style:** `docs/contributing.md`. Code style rules, feature design philosophy, UI/UX guidelines, workflow rules.
 - **Project rules:** `docs/project-rules.md`. Rule authority, comment policy, and mandatory change workflow.
 - **Architecture / infra:** `docs/architecture.md`. Build system, source layout, dependency layers, infrastructure internals.
+- **Interface themes:** `docs/theme-framework.md`. Rule library, add-a-theme SOP, append-only change log. Read before any theme change; update it in the same change. Local fork spec.
 - **Game concepts:** `docs/game/game-concepts.md`. Factions, materials, planets, bases, production, trading, shipping.
 - **Game UI:** `docs/game/ui-concepts.md`. APEX terminal interface, tiles, screens, data display conventions.
 - **Game commands:** `docs/game/commands.csv`. Columns: Command, Description, Mandatory parameters, Optional parameters.

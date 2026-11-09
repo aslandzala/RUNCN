@@ -5,15 +5,17 @@
 // 本文件负责两件事：
 //   1) buildCeramicSkin()：把 token 组装成 theme.ts 需要的 Skin，使样式表扫描
 //      重映射能按 8 个色相带输出「多彩但同类同色」的颜色；
-//   2) CERAMIC_CSS：组件类型 → token 的映射规则，全部带
-//      html[data-rp-theme='ceramic-colorful'][data-rp-theme] 前缀，不触碰其它主题。
+//   2) CERAMIC_CSS 的组件类型 → token 映射骨架：由 buildComponentCss(themeId)
+//      按主题 id 生成，全部带 html[data-rp-theme='<id>'][data-rp-theme] 前缀，
+//      不触碰其它主题。骨架本身与颜色无关，token 模式的新主题可直接复用。
 //      重复一次 [data-rp-theme] 是为了把特异性抬到 (0,3,1)：
 //      refined-prun.css 由 startup 挂在 <html> 末尾的容器里，文档顺序晚于
 //      <head> 里的 #rprun-theme，同特异性时会反过来压掉本主题的窗口描边；
 //      CONTROL_CSS 的 primary 按钮规则也带两个属性选择器。加这一级即可压过。
 import type { Skin } from './theme';
+import { CERAMIC_THEME_ID } from './theme-registry';
 
-export const CERAMIC_THEME_ID = 'ceramic-colorful';
+export { CERAMIC_THEME_ID };
 
 function token(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -131,46 +133,50 @@ export function buildCeramicSkin(): Skin {
   };
 }
 
-// 组件类型 → token 的映射。所有选择器都限定在新主题下，颜色一律 var()。
+// 组件类型 → token 的映射骨架。所有选择器都限定在传入的主题下，颜色一律 var()。
 // 顺序在 CONTROL_CSS 之后，因此同特异性时由这里决定按钮/控件的最终外观。
-export const CERAMIC_CSS = `
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] body {
+// 骨架与颜色无关：token 模式的新主题只要在 refined-prun.css 里定义同名
+// --rp-cc-* 色板，调用 buildComponentCss(<id>) 即可整套复用，无需复制本段。
+function componentCssFor(themeId: string): string {
+  const P = `html[data-rp-theme='${themeId}'][data-rp-theme]`;
+  return `
+${P} body {
   background-color: var(--rp-cc-canvas) !important;
   background-image: none !important;
   color: var(--rp-cc-text-primary) !important;
 }
 
 /* ── 焦点：所有可交互元素共用同一个可见焦点环（≥3:1） ───────────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+${P} :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: var(--rp-cc-ring-width) solid var(--rp-cc-ring) !important;
   outline-offset: var(--rp-cc-ring-offset) !important;
   box-shadow: 0 0 0 4px var(--rp-cc-ring-halo) !important;
 }
 
 /* ── 文字层级：标题/正文/辅助/链接/禁用各用固定 token ────────────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(h1, h2, h3, h4, h5, h6, p, label, small, th, td, li) {
+${P} :is(h1, h2, h3, h4, h5, h6, p, label, small, th, td, li) {
   color: var(--rp-cc-text-primary);
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(p, small, label, [class*='Label__'], [class*='HeadItem__label']) {
+${P} :is(p, small, label, [class*='Label__'], [class*='HeadItem__label']) {
   color: var(--rp-cc-text-secondary);
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Link__link'], a[href]) {
+${P} :is([class*='Link__link'], a[href]) {
   color: var(--rp-cc-text-link);
   text-decoration-color: var(--rp-cc-text-link);
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([disabled], [class*='disabled'], [class*='Disabled']) {
+${P} :is([disabled], [class*='disabled'], [class*='Disabled']) {
   color: var(--rp-cc-text-disabled) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(a[href], [class*='Link__link']):hover {
+${P} :is(a[href], [class*='Link__link']):hover {
   color: var(--rp-cc-btn-link-hover);
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] ::placeholder {
+${P} ::placeholder {
   color: var(--rp-cc-control-placeholder);
   opacity: 1;
 }
 
 /* ── 按钮：类型级统一，跨页面同色；五种状态都可辨 ────────────────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='Button__btn'] {
+${P} [class*='Button__btn'] {
   color: var(--rp-cc-btn-secondary-text) !important;
   background-color: var(--rp-cc-btn-secondary-bg) !important;
   border: 1px solid var(--rp-cc-border-default) !important;
@@ -178,60 +184,60 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='Button__btn'] {
   box-sizing: border-box;
   font-weight: 600;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='Button__btn']:hover {
+${P} [class*='Button__btn']:hover {
   background-color: var(--rp-cc-btn-secondary-hover) !important;
   border-color: var(--rp-cc-border-strong) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='Button__btn']:active {
+${P} [class*='Button__btn']:active {
   background-color: var(--rp-cc-btn-secondary-active) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__primary'], [data-rp-btn='primary']) {
+${P} :is([class*='Button__primary'], [data-rp-btn='primary']) {
   color: var(--rp-cc-btn-primary-text) !important;
   background-color: var(--rp-cc-btn-primary-bg) !important;
   border-color: var(--rp-cc-btn-primary-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__primary'], [data-rp-btn='primary']):hover {
+${P} :is([class*='Button__primary'], [data-rp-btn='primary']):hover {
   background-color: var(--rp-cc-btn-primary-hover) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__primary'], [data-rp-btn='primary']):active {
+${P} :is([class*='Button__primary'], [data-rp-btn='primary']):active {
   background-color: var(--rp-cc-btn-primary-active) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__danger'], [class*='Button__delete'], [data-rp-btn='danger']) {
+${P} :is([class*='Button__danger'], [class*='Button__delete'], [data-rp-btn='danger']) {
   color: var(--rp-cc-btn-danger-text) !important;
   background-color: var(--rp-cc-btn-danger-bg) !important;
   border-color: var(--rp-cc-btn-danger-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__danger'], [class*='Button__delete'], [data-rp-btn='danger']):hover {
+${P} :is([class*='Button__danger'], [class*='Button__delete'], [data-rp-btn='danger']):hover {
   background-color: var(--rp-cc-btn-danger-hover) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__danger'], [class*='Button__delete'], [data-rp-btn='danger']):active {
+${P} :is([class*='Button__danger'], [class*='Button__delete'], [data-rp-btn='danger']):active {
   background-color: var(--rp-cc-btn-danger-active) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__ghost'], [data-rp-btn='ghost']) {
+${P} :is([class*='Button__ghost'], [data-rp-btn='ghost']) {
   color: var(--rp-cc-btn-ghost-text) !important;
   background-color: var(--rp-cc-btn-ghost-bg) !important;
   border-color: var(--rp-cc-btn-ghost-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__ghost'], [data-rp-btn='ghost']):hover {
+${P} :is([class*='Button__ghost'], [data-rp-btn='ghost']):hover {
   background-color: var(--rp-cc-btn-ghost-hover) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__ghost'], [data-rp-btn='ghost']):active {
+${P} :is([class*='Button__ghost'], [data-rp-btn='ghost']):active {
   background-color: var(--rp-cc-btn-ghost-active) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__link'], [data-rp-btn='link']) {
+${P} :is([class*='Button__link'], [data-rp-btn='link']) {
   color: var(--rp-cc-btn-link-text) !important;
   background-color: var(--rp-cc-btn-link-bg) !important;
   border-color: var(--rp-cc-btn-link-border) !important;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__link'], [data-rp-btn='link']):hover {
+${P} :is([class*='Button__link'], [data-rp-btn='link']):hover {
   background-color: var(--rp-cc-btn-link-hover) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Button__link'], [data-rp-btn='link']):active {
+${P} :is([class*='Button__link'], [data-rp-btn='link']):active {
   background-color: var(--rp-cc-btn-link-active) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(button:disabled, [class*='Button__disabled'], [aria-disabled='true']) {
+${P} :is(button:disabled, [class*='Button__disabled'], [aria-disabled='true']) {
   color: var(--rp-cc-btn-disabled-text) !important;
   background-color: var(--rp-cc-btn-disabled-bg) !important;
   border-color: var(--rp-cc-btn-disabled-border) !important;
@@ -240,53 +246,53 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(button:disabled, [clas
 }
 
 /* ── 表单控件：input/select/textarea/复选/单选/开关/滑块同一套 token ──── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input, select, textarea, option) {
+${P} :is(input, select, textarea, option) {
   color: var(--rp-cc-control-text) !important;
   background-color: var(--rp-cc-control-bg) !important;
   border: 1px solid var(--rp-cc-border-default) !important;
   border-radius: 3px;
   box-sizing: border-box;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input, select, textarea):hover {
+${P} :is(input, select, textarea):hover {
   border-color: var(--rp-cc-border-strong) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input, select, textarea):focus,
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input, select, textarea):focus-visible {
+${P} :is(input, select, textarea):focus,
+${P} :is(input, select, textarea):focus-visible {
   border-color: var(--rp-cc-control-focus) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input, select, textarea):disabled {
+${P} :is(input, select, textarea):disabled {
   color: var(--rp-cc-control-disabled-text) !important;
   background-color: var(--rp-cc-control-disabled-bg) !important;
   border-color: var(--rp-cc-border-subtle) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input[type='checkbox'], input[type='radio']) {
+${P} :is(input[type='checkbox'], input[type='radio']) {
   accent-color: var(--rp-cc-control-checked);
   border-color: var(--rp-cc-border-strong) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input[type='range'], [class*='Slider__'], [class*='rc-slider']) {
+${P} :is(input[type='range'], [class*='Slider__'], [class*='rc-slider']) {
   accent-color: var(--rp-cc-control-thumb);
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] input[type='range'] {
+${P} input[type='range'] {
   background-color: var(--rp-cc-control-track) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Toggle__'], [class*='Switch__'], [role='switch']) {
+${P} :is([class*='Toggle__'], [class*='Switch__'], [role='switch']) {
   color: var(--rp-cc-control-text) !important;
   border-color: var(--rp-cc-border-default) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Toggle__'], [class*='Switch__'], [role='switch'])[aria-checked='true'] {
+${P} :is([class*='Toggle__'], [class*='Switch__'], [role='switch'])[aria-checked='true'] {
   background-color: var(--rp-cc-control-checked) !important;
   color: var(--rp-cc-text-inverse) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='FormComponent__container'], [class*='forms__form-component']) {
+${P} :is([class*='FormComponent__container'], [class*='forms__form-component']) {
   background-color: var(--rp-cc-surface) !important;
   border-bottom-color: var(--rp-cc-table-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='FormComponent__containerActive'] {
+${P} [class*='FormComponent__containerActive'] {
   background-color: var(--rp-cc-table-row-selected) !important;
 }
 
 /* ── 卡片 / 窗口 / 弹窗 / 遮罩 ─────────────────────────────────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='TileFrame__frame'], [class*='Window__window']) {
+${P} :is([class*='TileFrame__frame'], [class*='Window__window']) {
   background-color: var(--rp-cc-surface) !important;
   /* 游戏原生窗口外壳是 repeating-linear-gradient 深色斜纹，重映射成浅灰后
      仍是一条条斑马纹；连背景图一起清掉，只留纯色 + 阴影。 */
@@ -294,10 +300,10 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='TileFrame__fr
   color: var(--rp-cc-text-primary) !important;
   box-shadow: var(--rp-cc-shadow-card) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='TileFrame__frame'] {
+${P} [class*='TileFrame__frame'] {
   border: 1px solid var(--rp-cc-border-subtle) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='Window__window'] {
+${P} [class*='Window__window'] {
   /* 绝不能用 border：窗口宽高由游戏 inline style 精确控制，多 2px 实边框
      会把内容区从 428px 挤到 426px，XIT SET THEME 的
      repeat(auto-fit, minmax(210px, 1fr)) 就刚好放不下两列而塌成单列。
@@ -305,14 +311,14 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='Window__window'] 
   border: 0 !important;
   box-shadow: 0 0 0 1px var(--rp-cc-border-default), var(--rp-cc-shadow-card) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='Window__header'] {
+${P} [class*='Window__header'] {
   background-color: var(--rp-cc-surface-alt) !important;
   box-shadow: inset 0 -2px 0 0 var(--rp-cc-accent-line) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Overlay__overlay'], [class*='Modal__backdrop'], [class*='Dialog__backdrop']) {
+${P} :is([class*='Overlay__overlay'], [class*='Modal__backdrop'], [class*='Dialog__backdrop']) {
   background-color: var(--rp-cc-overlay) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Overlay__children'], [class*='Modal__content'], [class*='Dialog__content']) {
+${P} :is([class*='Overlay__children'], [class*='Modal__content'], [class*='Dialog__content']) {
   background-color: var(--rp-cc-surface) !important;
   color: var(--rp-cc-text-primary) !important;
   border: 1px solid var(--rp-cc-border-default) !important;
@@ -320,32 +326,39 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Overlay__chil
 }
 
 /* ── 表格：表头、低对比斑马纹、等宽数字、hover / 选中 ─────────────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] table {
+${P} table {
   background-color: var(--rp-cc-table-row) !important;
   color: var(--rp-cc-table-text) !important;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(td, th) {
+/* 正负语义色类可能直接挂在 td 上（XIT FINBS 的变动百分比），而原生 FIN 的
+   同类数字挂在 span 上。若这里把 td/th 的 color 一律改成中性表格文字色，
+   前者会被压成中性灰、后者仍是语义绿/红，两类财务窗口的数字颜色就分裂了。
+   因此带 ColoredValue 类的单元格不覆盖文字色（保留主题引擎重映射后的语义色），
+   底线与等宽数字仍照常统一。 */
+${P} :is(td, th):not([class*='ColoredValue']) {
   color: var(--rp-cc-table-text) !important;
+}
+${P} :is(td, th) {
   border-bottom: 1px solid var(--rp-cc-table-border) !important;
   font-variant-numeric: tabular-nums;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(thead, th, [class*='Table__header']) {
+${P} :is(thead, th, [class*='Table__header']) {
   background-color: var(--rp-cc-table-head-bg) !important;
   color: var(--rp-cc-table-head-text) !important;
   font-weight: 600;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] tbody tr:nth-child(even) {
+${P} tbody tr:nth-child(even) {
   background-color: var(--rp-cc-table-row-alt) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] tbody tr:hover {
+${P} tbody tr:hover {
   background-color: var(--rp-cc-table-row-hover) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(tr[class*='selected'], tr[class*='Selected'], [class*='Table__selected']) {
+${P} :is(tr[class*='selected'], tr[class*='Selected'], [class*='Table__selected']) {
   background-color: var(--rp-cc-table-row-selected) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Pagination__'], [class*='Selections__selection']) {
+${P} :is([class*='Pagination__'], [class*='Selections__selection']) {
   color: var(--rp-cc-text-primary) !important;
   border-color: var(--rp-cc-border-default) !important;
 }
@@ -356,7 +369,7 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Pagination__'
    一块黑底，用户明确要求恢复。游戏自己的 [data-tooltip] 伪元素浮窗由
    主题引擎重映射成浅底深字，本身就可读，这里不接管，避免引入新变化。
    伪元素也不能写进 :is()（会让该分支整条失效），所以只列实体容器。 */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] .rp-tooltip-portal {
+${P} .rp-tooltip-portal {
   color: var(--rp-cc-tooltip-text) !important;
   background-color: var(--rp-cc-tooltip-bg) !important;
   border: 1px solid var(--rp-cc-tooltip-border) !important;
@@ -364,7 +377,7 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] .rp-tooltip-portal {
   opacity: 1;
 }
 /* 说明图标保持无底色：显式压掉可能被其它规则带来的深底 / 描边。 */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Tooltip__container'], .rp-tooltip-icon, [class*='Tooltip__icon']) {
+${P} :is([class*='Tooltip__container'], .rp-tooltip-icon, [class*='Tooltip__icon']) {
   background-color: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
@@ -372,80 +385,80 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Tooltip__cont
 }
 
 /* ── 进度条 / 资源条：轨道与填充都由 token 决定 ──────────────────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] progress,
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='ProgressBar__progress'] {
+${P} progress,
+${P} [class*='ProgressBar__progress'] {
   background-color: var(--rp-cc-control-track) !important;
   border: 1px solid var(--rp-cc-border-default) !important;
   color: var(--rp-cc-cat-1-chart);
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] progress::-webkit-progress-bar {
+${P} progress::-webkit-progress-bar {
   background-color: var(--rp-cc-control-track) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='ProgressBar__good'], [class*='ProgressBar__primary'])::-webkit-progress-value {
+${P} :is([class*='ProgressBar__good'], [class*='ProgressBar__primary'])::-webkit-progress-value {
   background-color: var(--rp-cc-cat-1-chart) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='ProgressBar__warning']::-webkit-progress-value {
+${P} [class*='ProgressBar__warning']::-webkit-progress-value {
   background-color: var(--rp-cc-status-warning-text) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='ProgressBar__danger']::-webkit-progress-value {
+${P} [class*='ProgressBar__danger']::-webkit-progress-value {
   background-color: var(--rp-cc-status-danger-text) !important;
 }
 
 /* ── 状态提示：底色 + 深字 + 边框，并可用 data-rp-status 配图标 ──────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='daysWarning'], [data-rp-status='warning']) {
+${P} :is([class*='daysWarning'], [data-rp-status='warning']) {
   background-color: var(--rp-cc-status-warning-bg) !important;
   color: var(--rp-cc-status-warning-text) !important;
   border-color: var(--rp-cc-status-warning-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='daysMissing'], [data-rp-status='danger'], [class*='Alert__danger']) {
+${P} :is([class*='daysMissing'], [data-rp-status='danger'], [class*='Alert__danger']) {
   background-color: var(--rp-cc-status-danger-bg) !important;
   color: var(--rp-cc-status-danger-text) !important;
   border-color: var(--rp-cc-status-danger-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-status='success'] {
+${P} [data-rp-status='success'] {
   background-color: var(--rp-cc-status-success-bg) !important;
   color: var(--rp-cc-status-success-text) !important;
   border-color: var(--rp-cc-status-success-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-status='info'] {
+${P} [data-rp-status='info'] {
   background-color: var(--rp-cc-status-info-bg) !important;
   color: var(--rp-cc-status-info-text) !important;
   border-color: var(--rp-cc-status-info-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-status]::before {
+${P} [data-rp-status]::before {
   font-weight: 700;
   margin-right: 4px;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-status='success']::before { content: '\\2713'; }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-status='warning']::before { content: '\\26A0'; }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-status='danger']::before { content: '\\2715'; }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-status='info']::before { content: 'i'; }
+${P} [data-rp-status='success']::before { content: '\\2713'; }
+${P} [data-rp-status='warning']::before { content: '\\26A0'; }
+${P} [data-rp-status='danger']::before { content: '\\2715'; }
+${P} [data-rp-status='info']::before { content: 'i'; }
 
 /* ── 分类标签：浅底 + 深字；同一 data-label / data-rp-cat 全站同色 ───── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='SectionHeader__container'][data-label], [class*='Tag__'], [class*='Badge__'], [data-rp-cat]) {
+${P} :is([class*='SectionHeader__container'][data-label], [class*='Tag__'], [class*='Badge__'], [data-rp-cat]) {
   background-color: var(--rp-cc-cat-1-bg) !important;
   color: var(--rp-cc-cat-1-text) !important;
   border-color: var(--rp-cc-cat-1-border) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-label='Outputs'] { --rp-cc-cat-bg: var(--rp-cc-cat-2-bg); --rp-cc-cat-fg: var(--rp-cc-cat-2-text); --rp-cc-cat-line: var(--rp-cc-cat-2-border); --rp-cc-cat-mark: var(--rp-cc-cat-2-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-label='Inputs'] { --rp-cc-cat-bg: var(--rp-cc-cat-4-bg); --rp-cc-cat-fg: var(--rp-cc-cat-4-text); --rp-cc-cat-line: var(--rp-cc-cat-4-border); --rp-cc-cat-mark: var(--rp-cc-cat-4-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-label='Consumables'] { --rp-cc-cat-bg: var(--rp-cc-cat-5-bg); --rp-cc-cat-fg: var(--rp-cc-cat-5-text); --rp-cc-cat-line: var(--rp-cc-cat-5-border); --rp-cc-cat-mark: var(--rp-cc-cat-5-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([data-label='其他'], [data-label='Other']) { --rp-cc-cat-bg: var(--rp-cc-cat-7-bg); --rp-cc-cat-fg: var(--rp-cc-cat-7-text); --rp-cc-cat-line: var(--rp-cc-cat-7-border); --rp-cc-cat-mark: var(--rp-cc-cat-7-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='1'] { --rp-cc-cat-bg: var(--rp-cc-cat-1-bg); --rp-cc-cat-fg: var(--rp-cc-cat-1-text); --rp-cc-cat-line: var(--rp-cc-cat-1-border); --rp-cc-cat-mark: var(--rp-cc-cat-1-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='2'] { --rp-cc-cat-bg: var(--rp-cc-cat-2-bg); --rp-cc-cat-fg: var(--rp-cc-cat-2-text); --rp-cc-cat-line: var(--rp-cc-cat-2-border); --rp-cc-cat-mark: var(--rp-cc-cat-2-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='3'] { --rp-cc-cat-bg: var(--rp-cc-cat-3-bg); --rp-cc-cat-fg: var(--rp-cc-cat-3-text); --rp-cc-cat-line: var(--rp-cc-cat-3-border); --rp-cc-cat-mark: var(--rp-cc-cat-3-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='4'] { --rp-cc-cat-bg: var(--rp-cc-cat-4-bg); --rp-cc-cat-fg: var(--rp-cc-cat-4-text); --rp-cc-cat-line: var(--rp-cc-cat-4-border); --rp-cc-cat-mark: var(--rp-cc-cat-4-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='5'] { --rp-cc-cat-bg: var(--rp-cc-cat-5-bg); --rp-cc-cat-fg: var(--rp-cc-cat-5-text); --rp-cc-cat-line: var(--rp-cc-cat-5-border); --rp-cc-cat-mark: var(--rp-cc-cat-5-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='6'] { --rp-cc-cat-bg: var(--rp-cc-cat-6-bg); --rp-cc-cat-fg: var(--rp-cc-cat-6-text); --rp-cc-cat-line: var(--rp-cc-cat-6-border); --rp-cc-cat-mark: var(--rp-cc-cat-6-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='7'] { --rp-cc-cat-bg: var(--rp-cc-cat-7-bg); --rp-cc-cat-fg: var(--rp-cc-cat-7-text); --rp-cc-cat-line: var(--rp-cc-cat-7-border); --rp-cc-cat-mark: var(--rp-cc-cat-7-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-cat='8'] { --rp-cc-cat-bg: var(--rp-cc-cat-8-bg); --rp-cc-cat-fg: var(--rp-cc-cat-8-text); --rp-cc-cat-line: var(--rp-cc-cat-8-border); --rp-cc-cat-mark: var(--rp-cc-cat-8-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='SectionHeader__container'][data-label], [data-rp-cat]) {
+${P} [data-label='Outputs'] { --rp-cc-cat-bg: var(--rp-cc-cat-2-bg); --rp-cc-cat-fg: var(--rp-cc-cat-2-text); --rp-cc-cat-line: var(--rp-cc-cat-2-border); --rp-cc-cat-mark: var(--rp-cc-cat-2-chart); }
+${P} [data-label='Inputs'] { --rp-cc-cat-bg: var(--rp-cc-cat-4-bg); --rp-cc-cat-fg: var(--rp-cc-cat-4-text); --rp-cc-cat-line: var(--rp-cc-cat-4-border); --rp-cc-cat-mark: var(--rp-cc-cat-4-chart); }
+${P} [data-label='Consumables'] { --rp-cc-cat-bg: var(--rp-cc-cat-5-bg); --rp-cc-cat-fg: var(--rp-cc-cat-5-text); --rp-cc-cat-line: var(--rp-cc-cat-5-border); --rp-cc-cat-mark: var(--rp-cc-cat-5-chart); }
+${P} :is([data-label='其他'], [data-label='Other']) { --rp-cc-cat-bg: var(--rp-cc-cat-7-bg); --rp-cc-cat-fg: var(--rp-cc-cat-7-text); --rp-cc-cat-line: var(--rp-cc-cat-7-border); --rp-cc-cat-mark: var(--rp-cc-cat-7-chart); }
+${P} [data-rp-cat='1'] { --rp-cc-cat-bg: var(--rp-cc-cat-1-bg); --rp-cc-cat-fg: var(--rp-cc-cat-1-text); --rp-cc-cat-line: var(--rp-cc-cat-1-border); --rp-cc-cat-mark: var(--rp-cc-cat-1-chart); }
+${P} [data-rp-cat='2'] { --rp-cc-cat-bg: var(--rp-cc-cat-2-bg); --rp-cc-cat-fg: var(--rp-cc-cat-2-text); --rp-cc-cat-line: var(--rp-cc-cat-2-border); --rp-cc-cat-mark: var(--rp-cc-cat-2-chart); }
+${P} [data-rp-cat='3'] { --rp-cc-cat-bg: var(--rp-cc-cat-3-bg); --rp-cc-cat-fg: var(--rp-cc-cat-3-text); --rp-cc-cat-line: var(--rp-cc-cat-3-border); --rp-cc-cat-mark: var(--rp-cc-cat-3-chart); }
+${P} [data-rp-cat='4'] { --rp-cc-cat-bg: var(--rp-cc-cat-4-bg); --rp-cc-cat-fg: var(--rp-cc-cat-4-text); --rp-cc-cat-line: var(--rp-cc-cat-4-border); --rp-cc-cat-mark: var(--rp-cc-cat-4-chart); }
+${P} [data-rp-cat='5'] { --rp-cc-cat-bg: var(--rp-cc-cat-5-bg); --rp-cc-cat-fg: var(--rp-cc-cat-5-text); --rp-cc-cat-line: var(--rp-cc-cat-5-border); --rp-cc-cat-mark: var(--rp-cc-cat-5-chart); }
+${P} [data-rp-cat='6'] { --rp-cc-cat-bg: var(--rp-cc-cat-6-bg); --rp-cc-cat-fg: var(--rp-cc-cat-6-text); --rp-cc-cat-line: var(--rp-cc-cat-6-border); --rp-cc-cat-mark: var(--rp-cc-cat-6-chart); }
+${P} [data-rp-cat='7'] { --rp-cc-cat-bg: var(--rp-cc-cat-7-bg); --rp-cc-cat-fg: var(--rp-cc-cat-7-text); --rp-cc-cat-line: var(--rp-cc-cat-7-border); --rp-cc-cat-mark: var(--rp-cc-cat-7-chart); }
+${P} [data-rp-cat='8'] { --rp-cc-cat-bg: var(--rp-cc-cat-8-bg); --rp-cc-cat-fg: var(--rp-cc-cat-8-text); --rp-cc-cat-line: var(--rp-cc-cat-8-border); --rp-cc-cat-mark: var(--rp-cc-cat-8-chart); }
+${P} :is([class*='SectionHeader__container'][data-label], [data-rp-cat]) {
   position: relative;
   background-color: var(--rp-cc-cat-bg, var(--rp-cc-cat-1-bg)) !important;
   color: var(--rp-cc-cat-fg, var(--rp-cc-cat-1-text)) !important;
   box-shadow: inset 0 0 0 1px var(--rp-cc-cat-line, var(--rp-cc-cat-1-border)) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='SectionHeader__container'][data-label], [data-rp-cat])::before {
+${P} :is([class*='SectionHeader__container'][data-label], [data-rp-cat])::before {
   content: '';
   position: absolute;
   left: 0;
@@ -455,7 +468,7 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='SectionHeader
   background-color: var(--rp-cc-cat-mark, var(--rp-cc-cat-1-chart));
   pointer-events: none;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='SectionHeader__container'][data-label]::after {
+${P} [class*='SectionHeader__container'][data-label]::after {
   color: var(--rp-cc-cat-fg, var(--rp-cc-cat-1-text)) !important;
   -webkit-text-fill-color: var(--rp-cc-cat-fg, var(--rp-cc-cat-1-text)) !important;
 }
@@ -463,20 +476,20 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='SectionHeader__co
    5 个属性选择器且用 !important，又挂在 <html> 末尾、文档顺序晚于 <head>
    里的主题样式表。这里再叠三级属性选择器，把底色 / 描边 / 中文文字真正
    压到真实界面上；--rp-cc-cat-* 已由上面的 data-label 规则定义在本元素。 */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme][data-rp-theme][data-rp-theme][data-rp-theme] [class*='SectionHeader__container'][data-label] {
+${P}[data-rp-theme][data-rp-theme][data-rp-theme] [class*='SectionHeader__container'][data-label] {
   background-color: var(--rp-cc-cat-bg, var(--rp-cc-cat-1-bg)) !important;
   background-image: none !important;
   color: var(--rp-cc-cat-fg, var(--rp-cc-cat-1-text)) !important;
   box-shadow: inset 0 0 0 1px var(--rp-cc-cat-line, var(--rp-cc-cat-1-border)) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme][data-rp-theme][data-rp-theme][data-rp-theme] [class*='SectionHeader__container'][data-label]::after {
+${P}[data-rp-theme][data-rp-theme][data-rp-theme] [class*='SectionHeader__container'][data-label]::after {
   color: var(--rp-cc-cat-fg, var(--rp-cc-cat-1-text)) !important;
   -webkit-text-fill-color: var(--rp-cc-cat-fg, var(--rp-cc-cat-1-text)) !important;
 }
 
 /* ── 图表：图例色块与序列同 token，配合文字标签而非只靠颜色 ─────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Legend__'], [data-rp-chart-series]) :is(span, i, b)::before,
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series]::before {
+${P} :is([class*='Legend__'], [data-rp-chart-series]) :is(span, i, b)::before,
+${P} [data-rp-chart-series]::before {
   content: '';
   display: inline-block;
   width: 8px;
@@ -487,25 +500,25 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series]::be
   border: 1px solid var(--rp-cc-border-default);
   vertical-align: middle;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='1']::before { background-color: var(--rp-cc-cat-1-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='2']::before { background-color: var(--rp-cc-cat-2-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='3']::before { background-color: var(--rp-cc-cat-3-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='4']::before { background-color: var(--rp-cc-cat-4-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='5']::before { background-color: var(--rp-cc-cat-5-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='6']::before { background-color: var(--rp-cc-cat-6-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='7']::before { background-color: var(--rp-cc-cat-7-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [data-rp-chart-series='8']::before { background-color: var(--rp-cc-cat-8-chart); }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] canvas {
+${P} [data-rp-chart-series='1']::before { background-color: var(--rp-cc-cat-1-chart); }
+${P} [data-rp-chart-series='2']::before { background-color: var(--rp-cc-cat-2-chart); }
+${P} [data-rp-chart-series='3']::before { background-color: var(--rp-cc-cat-3-chart); }
+${P} [data-rp-chart-series='4']::before { background-color: var(--rp-cc-cat-4-chart); }
+${P} [data-rp-chart-series='5']::before { background-color: var(--rp-cc-cat-5-chart); }
+${P} [data-rp-chart-series='6']::before { background-color: var(--rp-cc-cat-6-chart); }
+${P} [data-rp-chart-series='7']::before { background-color: var(--rp-cc-cat-7-chart); }
+${P} [data-rp-chart-series='8']::before { background-color: var(--rp-cc-cat-8-chart); }
+${P} canvas {
   background-color: var(--rp-cc-surface);
   border-radius: 3px;
 }
 
 /* ── 图标 / 角标：小面积彩色，不做每卡片随机底色 ────────────────────── */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='MaterialIcon__indicator'] {
+${P} [class*='MaterialIcon__indicator'] {
   color: var(--rp-cc-cat-4-text) !important;
   background-color: var(--rp-cc-cat-4-bg) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='ColoredIcon__container'] {
+${P} [class*='ColoredIcon__container'] {
   background: linear-gradient(135deg, var(--rp-cc-surface), var(--rp-cc-cat-1-bg)) !important;
   border: 1px solid var(--rp-cc-border-default) !important;
   color: var(--rp-cc-text-primary) !important;
@@ -515,31 +528,37 @@ html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='ColoredIcon__cont
    必须排除 TileDivider__*：那是游戏屏幕布局里「可左右拖动调整列宽」的
    分隔条（cursor: col-resize，9px 宽、贯穿全屏高）。原生是透明/极淡，
    只给纯装饰性的 Divider / hr 上色；否则它会被染成一条显眼的实色竖条。 */
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is([class*='Divider__']:not([class*='TileDivider__']), hr) {
+${P} :is([class*='Divider__']:not([class*='TileDivider__']), hr) {
   border-color: var(--rp-cc-border-subtle) !important;
   background-color: var(--rp-cc-border-subtle) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='ContextControls__item'] {
+${P} [class*='ContextControls__item'] {
   border-color: var(--rp-cc-border-default) !important;
   color: var(--rp-cc-text-primary) !important;
 }
-html[data-rp-theme='ceramic-colorful'][data-rp-theme] [class*='ContextControls__item']:hover {
+${P} [class*='ContextControls__item']:hover {
   background-color: var(--rp-cc-btn-secondary-hover) !important;
 }
 
 /* ── 移动端：触控目标与输入框高度，焦点环保持可见 ───────────────────── */
 @media (max-width: 700px) {
-  html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(button, [class*='Button__btn']) {
+  ${P} :is(button, [class*='Button__btn']) {
     min-height: 32px;
   }
-  html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(input, select, textarea) {
+  ${P} :is(input, select, textarea) {
     min-height: 34px;
     font-size: 14px;
   }
   /* :is() 里保留 [tabindex]，与主焦点规则特异性完全一致；同为 !important
      时由后面这条媒体查询胜出，把移动端焦点环加粗到 3px。 */
-  html[data-rp-theme='ceramic-colorful'][data-rp-theme] :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  ${P} :is(button, a, input, select, textarea, [tabindex]):focus-visible {
     outline-width: 3px !important;
   }
 }
 `;
+}
+
+/** 按主题 id 生成组件类型 → token 的映射规则；颜色只来自 --rp-cc-* 色板。 */
+export function buildComponentCss(themeId: string = CERAMIC_THEME_ID): string {
+  return componentCssFor(themeId);
+}

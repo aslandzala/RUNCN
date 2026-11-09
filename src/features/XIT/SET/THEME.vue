@@ -3,39 +3,18 @@ import SectionHeader from '@src/components/SectionHeader.vue';
 import PrunButton from '@src/components/PrunButton.vue';
 import Commands from '@src/components/forms/Commands.vue';
 import { userData } from '@src/store/user-data';
+import { DEFAULT_THEME_ID, THEMES, type ThemeId } from '@src/features/basic/theme-registry';
 
+// 主题列表来自注册表（唯一事实源）：新增主题只需改注册表，设置页自动出现卡片。
 // 主题在点击时立即生效（theme.ts 监听 userData），无需刷新页面。
-const themes = [
-  {
-    id: 'default',
-    label: '原样',
-    desc: '游戏原生深色界面 + 橙金强调色，等于不启用主题。',
-  },
-  {
-    id: 'light',
-    label: '浅色明亮',
-    desc: '浅底深字、低饱和：窗口、表格、按钮、物料图标、输入框统一重配色，彩色收敛为石板蓝；保留黄红异常标记，图片与涨跌含义不变。',
-  },
-  {
-    id: 'paper',
-    label: '暖米纸',
-    desc: '参考暖色纸张界面：淡米白底、近白卡片、卡其细边框，赭金强调搭配小面积墨绿与暗红；低饱和暖调，黄红异常标记照旧保留。',
-  },
-  {
-    id: 'ceramic-colorful',
-    label: '陶瓷白多彩',
-    desc: '暖陶瓷白底 + 近白卡片，8 个低饱和色相只用于分类标签、图表、图标、装饰线与状态提示；按钮/表单/表格按组件类型统一，正文、焦点态与禁用态经 WCAG 对比度校验。',
-  },
-] as const;
+const current = computed(() => userData.settings.theme ?? DEFAULT_THEME_ID);
 
-const current = computed(() => userData.settings.theme ?? 'default');
-
-function pick(id: (typeof themes)[number]['id']) {
+function pick(id: ThemeId) {
   userData.settings.theme = id;
 }
 
 function reset() {
-  userData.settings.theme = 'default';
+  userData.settings.theme = DEFAULT_THEME_ID;
 }
 </script>
 
@@ -44,7 +23,7 @@ function reset() {
   <form>
     <div :class="$style.grid">
       <button
-        v-for="t in themes"
+        v-for="t in THEMES"
         :key="t.id"
         type="button"
         :class="[$style.card, current === t.id ? $style.cardActive : '']"

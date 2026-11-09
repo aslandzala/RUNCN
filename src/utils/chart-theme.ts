@@ -1,11 +1,12 @@
 // Chart.js / canvas 的主题颜色映射。
 //
 // canvas 的 fillStyle 不认识 var()，所以这里把 CSS 语义 token 解析成具体色值。
-// 只在「陶瓷白多彩」主题下取 token；其余主题一律返回原组件的默认色板，
-// 保证原样 / 浅色明亮 / 暖米纸三套主题的图表外观一字不变。
+// 只在注册表中 mode:'token' 的主题下取 token；其余主题一律返回原组件的
+// 默认色板，保证原样 / 浅色明亮 / 暖米纸的图表外观一字不变。
 // 读取 userData.settings.theme 是为了让 Vue computed 建立响应式依赖：
 // 用户在 XIT SET 里切换主题时图表会重新取色。
 import { userData } from '@src/store/user-data';
+import { usesTokenPalette } from '@src/features/basic/theme-registry';
 
 const FALLBACK = {
   series: ['#004564', '#005b76', '#007079', '#00846c', '#009552', '#67a22e', '#ada900', '#f7a600'],
@@ -27,7 +28,7 @@ export interface ChartColors {
 
 export function chartColors(): ChartColors {
   const theme = userData.settings.theme;
-  if (theme !== 'ceramic-colorful') {
+  if (!usesTokenPalette(theme)) {
     return FALLBACK;
   }
   const style = getComputedStyle(document.documentElement);
