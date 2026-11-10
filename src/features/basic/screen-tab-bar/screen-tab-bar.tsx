@@ -87,6 +87,7 @@ function init() {
   });
   subscribe($$(document, C.ScreenControls.screens), onListReady);
   applyCssRule(`.${C.Head.contextAndScreens}`, $style.contextAndScreens);
+  applyCssRule(`.${C.Head.container}`, $style.head);
   applyCssRule(`.${C.ScreenControls.container}`, $style.screenControls);
 }
 

@@ -32,7 +32,12 @@ onMounted(() => {
     'wheel',
     e => {
       e.preventDefault();
-      container.value?.scrollBy({ left: e.deltaY, behavior: 'smooth' });
+      // 换行后横向可能仍有滚动（超长名字），纵向是两行封顶后的余量，两者都跟手。
+      container.value?.scrollBy({
+        left: e.deltaX,
+        top: e.deltaY,
+        behavior: 'smooth',
+      });
     },
     { passive: false },
   );
@@ -62,14 +67,21 @@ onMounted(() => {
 
 .container {
   display: flex;
-  flex-direction: row;
+  /* 一行放不下就换行：窄窗口下不再横向裁掉看不见的标签。最多两行，
+     再多只纵向滚动（不横滚），保证每个标签都能点到。 */
+  flex-flow: row wrap;
+  align-content: flex-start;
+  align-items: stretch;
   flex: 1 1 auto;
   min-width: 50px;
-  contain: inline-size;
-  overflow: hidden;
+  max-height: 54px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
 
   > .item {
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    height: 26px;
   }
 }
 </style>

@@ -2,6 +2,14 @@
   flex: 1 1 auto;
 }
 
+/* 游戏把顶栏高度钉死在 26px，标签一旦换行就会被裁掉、几行挤在一条里，
+   只剩互相压着的文字。这里让顶栏跟着标签变高（单行时仍是最小高度）。 */
+.head {
+  height: auto;
+  min-height: 26px;
+  align-items: stretch;
+}
+
 .screenControls {
   display: inline-flex;
   flex: 1 1 auto;
