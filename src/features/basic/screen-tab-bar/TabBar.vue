@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import HeadItem from './HeadItem.vue';
-import { screensStore } from '@src/infrastructure/prun-api/data/screens';
+import { context, screensStore } from '@src/infrastructure/prun-api/data/screens';
 import { userData } from '@src/store/user-data';
 import { vDraggable } from 'vue-draggable-plus';
 import { syncState } from '@src/features/basic/screen-tab-bar/sync';
@@ -12,6 +12,13 @@ const current = computed(() => screensStore.current.value);
 
 function getScreen(id: string) {
   return screensStore.getById(id);
+}
+
+// 政府管理视图是在「context=管理机构 id」下看同一批界面。标签页如果用纯
+// `#screen=<id>` 跳转，会把 context 丢掉、直接从政府视图弹回公司上下文，
+// 所以当前带 context 时要把 context 一起带上。
+function screenHref(id: string) {
+  return context.value ? `#/context=${context.value}&screen=${id}` : `#screen=${id}`;
 }
 
 const container = useTemplateRef('container');
@@ -35,7 +42,7 @@ onMounted(() => {
     v-draggable="[userData.tabs.order, { animation: 150 }]"
     :class="$style.container">
     <template v-for="id in userData.tabs.order" :key="id">
-      <a v-show="!userData.tabs.hidden.includes(id)" :href="`#screen=${id}`" :class="$style.item">
+      <a v-show="!userData.tabs.hidden.includes(id)" :href="screenHref(id)" :class="$style.item">
         <HeadItem :label="getScreen(id)?.name ?? ''" :active="current === getScreen(id)" />
       </a>
     </template>
