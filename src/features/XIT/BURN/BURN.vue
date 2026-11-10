@@ -208,7 +208,7 @@ function onTrialClick() {
         data-tooltip="按当前星球的补给需求，用游戏实时盘口对比各交易所采购成本"
         data-tooltip-position="top"
         @click="onTrialClick"
-        >比价</PrunButton
+        >比价购买</PrunButton
       >
     </div>
     <table>
@@ -237,7 +237,6 @@ function onTrialClick() {
             </InlineFlex>
           </th>
           <th>天数</th>
-          <th>命令</th>
         </tr>
       </thead>
       <tbody :class="$style.fakeRow">
