@@ -177,6 +177,7 @@ buildCss(skin)  →  tokensFor(theme, skin)  →  CONTROL_CSS  →  buildCompone
 | R19 | 正负数字色被 `:is(td,th)` 统一文字色压成中性灰 | **必须** `:is(td, th):not([class*='ColoredValue'])`；原生 FIN 的语义色挂在 span、XIT FINBS 挂在 td，两类都要保留语义绿/红 | `theme-ceramic.ts` 表格段；`refined-prun.css` 第 6) 组 | `verify-fin-style.mjs` 正数颜色一致 |
 | R20 | 缓存窗口边框从石板蓝→橙色→深蓝反复改 | 边框色**必须**走 `--rp-window-border-rgb`（纯三元组），用 `box-shadow` 不占盒模型；当前定值深蓝 `25, 60, 105` | `refined-prun.css` 分节 A/N | 真机取色 |
 | R26 | 原生命令执行状态斜纹（运行中橙滚动 / 完成绿静止）在自定义主题下发白 | 游戏原生把颜色**写死在 `repeating-linear-gradient` 字面量**里，`collect()` 判 `gradient` 角色后换成 `palette.*.gradient` 近白；与 `--rp-color-*` 被污染是**两条独立路径**，第 6) 组的变量重定义覆盖不到，且 `COGCPEX` 等原生窗口不在 XIT/FIN 作用域。**必须**按 `ActionFeedback__progress/success/error` 类名直接覆盖 `background-image` / `background-color`，用 `color-mix(in srgb, var(--rp-skin-action-*) …, transparent)`（整条值不含颜色字面量，不会被扫描）；**禁止**改 `animation` / `background-position`（保留滚动与静止的区别）；**禁止**写裸色回退；规则带 `html[data-rp-theme]` 前缀，原样主题不受影响 | `refined-prun.css` 第 8) 组 | `verify-round26.mjs` 三主题 × 两态取色 + 原样 `styleLen===0` |
+| R27 | BRA「所需材料」里仓库不够的数量角标本该是红的，实际显示成墨色 | 游戏自己用 `MaterialIcon__danger` 标记缺料，但主题的 `html[data-rp-theme] [class*=MaterialIcon__indicator]` 统一角标文字色（墨色 + `!important`）把它压掉了。**必须**给 danger 角标单独补一条更高特异性的规则恢复语义红；颜色**必须**走新 token `--rp-skin-danger`（skin 模式给字面量、token 模式别名 `--rp-cc-status-danger-text`），**禁止**写裸色值；作用域只到 `[class*=rp-command-BRA]`，其它面板角标不动 | `theme.ts` CONTROL_CSS 角标段 + `SKINS.light/paper.vars` + `theme-ceramic.ts vars` | `verify-bra-material-red.mjs`（danger 角标为红、非 danger 角标仍为墨色、原样主题不变） |
 
 ### F. 原样主题与历史数据
 
@@ -246,6 +247,8 @@ buildCss(skin)  →  tokensFor(theme, skin)  →  CONTROL_CSS  →  buildCompone
 | 2026-11-09（未提交） | 原生 `FIN*` 与 `XIT FIN*` 格式统一；陶瓷白 `:is(td,th)` 排除 `ColoredValue` | 第 6) 组原只挂 `.rp-command-XIT`，原生财务窗口一条没吃到 → 表头/线条/数字色分裂；td 上的正负色类被统一表格文字色压成中性灰 | R12、R19 | `verify-fin-style.mjs` 129/129（三主题 × 6 类窗口 + 原样主题） |
 | 2026-11-09（未提交） | **本框架固化**：注册表、三种 mode、组件映射骨架参数化、本文件 | 主题 id/描述散在 7 处手工同步；105 处硬编码 `ceramic-colorful` 前缀使新主题必须整段复制；20+ 条踩坑修正只存在于代码注释与验收脚本，没有单一事实源 | §0~§6 全部；R01、R04、R22 补充 | 类型检查 + 完整构建链 + 真机三主题回归（见 §8） |
 | 2026-11-09（未提交） | FB 槽位白边、INV 双滚动条 / 紧凑强制滚动条、原生状态斜纹发白，共 4 项 | ① FB 槽位浅色 `var()` 回退 + 原生 6px 外边距 → 原样主题 BS/BURN 露出 14px 宽白边，INV 已铺满所以看不到；② `overflow:scroll` 无溢出也画轨道、紧凑模式清零负 margin 暴露第二套，主题全局 `scrollbar-color` 又让细条变 ≈10px 标准条；③ 游戏原生斜纹颜色是 `repeating-linear-gradient` 里的**字面量**，被 CSSOM 的 gradient 角色映射刷白，与 `--rp-color-*` 污染无关，第 6) 组变量兜底覆盖不到。一律选**局部 CSS 兜底**而非改引擎 `semanticOverride()`：后者只处理 `background-color`、不处理 `background-image`，要扩展需动 Skin 接口 + 三份色板，回归面最大；槽位改透明回退 + 清零外边距比改盒模型高度更安全；滚动条只隐藏自绘轨道、保留 4px webkit 细条，`overflow:auto` 天然按需 | 新增 R24、R25、R26 | `verify-round26.mjs`（三主题 + 原样真机）、完整构建链、既有主题回归脚本 |
+| 2026-11-10（未提交） | 新增 `--rp-skin-danger`（light `#9c3b3b` / paper `#9b4741` / ceramic `var(--rp-cc-status-danger-text)`）；CONTROL_CSS 角标段补 BRA 的 danger 角标规则 | 用户反馈 BRA「所需材料」缺料看不出红：游戏靠 `MaterialIcon__danger` 标缺料，但统一角标文字色规则（墨色 `!important`）把它压成 rgb(38,51,61)。选「补一条更高特异性规则 + 新语义 token」而不是放宽统一角标规则：统一角标色是上一轮为可读性定的，放宽会连带改所有面板图标角标；也不写裸色值（R01），只在三套色板各加一个 token。作用域收到 BRA，避免波及 INV/SHPI 紧凑角标 | 新增 R27 | `verify-bra-material-red.mjs`：BRA danger 角标 `rgb(156,59,59)`、同排非 danger 角标仍为墨色、`default` 主题无 `#rprun-theme` 样式 |
+
 
 **新行模板**
 

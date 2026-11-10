@@ -85,6 +85,8 @@ export function buildCeramicSkin(): Skin {
       '--rp-skin-action-unload': 'var(--rp-cc-cat-4-text)',
       '--rp-skin-action-flight': 'var(--rp-cc-cat-2-text)',
       '--rp-skin-action-fuel': 'var(--rp-cc-cat-5-text)',
+      // 缺料/危险语义红（R27）：BRA「所需材料」不足的数量角标。
+      '--rp-skin-danger': 'var(--rp-cc-status-danger-text)',
       '--rp-skin-action-done': 'var(--rp-cc-cat-6-text)',
       '--rp-accent-rgb': hexToTriple(accent),
       '--rp-color-accent-primary': 'var(--rp-cc-accent-line)',

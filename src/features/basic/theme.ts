@@ -1,12 +1,7 @@
 import { watchEffect } from 'vue';
 import { userData } from '@src/store/user-data';
 import { buildCeramicSkin, buildComponentCss } from './theme-ceramic';
-import {
-  CUSTOM_THEME_ID_SET,
-  DEFAULT_THEME_ID,
-  THEMES,
-  usesTokenPalette,
-} from './theme-registry';
+import { CUSTOM_THEME_ID_SET, DEFAULT_THEME_ID, THEMES, usesTokenPalette } from './theme-registry';
 
 // 界面主题：不再使用 html 上的 invert/hue-rotate 滤镜，而是直接改写颜色。
 // 扫描页面样式表，把每条声明里的颜色按「角色」重映射到一套低饱和浅色皮肤：
@@ -111,6 +106,8 @@ const SKINS: Record<string, Skin> = {
       '--rp-skin-action-unload': '#8a6327',
       '--rp-skin-action-flight': '#2f6b48',
       '--rp-skin-action-fuel': '#9b4741',
+      // 缺料/危险语义红：BRA「所需材料」不足的数量角标用它（见 R27）。
+      '--rp-skin-danger': '#9c3b3b',
       // CXOS「已成交」专用：与「买入」的墨绿、已挂单的深蓝都拉开色相，
       // 避免状态文字与买卖方向混成同一种颜色。
       '--rp-skin-action-done': '#5b4a8a',
@@ -201,6 +198,8 @@ const SKINS: Record<string, Skin> = {
       '--rp-skin-action-unload': '#8a5a1c',
       '--rp-skin-action-flight': '#3f6b70',
       '--rp-skin-action-fuel': '#9b4741',
+      // 缺料/危险语义红：取自本主题 palette.red.text（见 R27）。
+      '--rp-skin-danger': '#9b4741',
       '--rp-skin-action-done': '#5e4a7a',
     },
     palette: {
@@ -341,6 +340,12 @@ html[data-rp-theme] [class*="MaterialIcon__indicator"] {
   outline: 0 !important;
   box-shadow: none !important;
   text-shadow: none !important;
+}
+/* BRA「所需材料」：游戏用 MaterialIcon__danger 标出仓库不够的数量，但上面那条
+   统一角标色把它的红压成了墨色，缺料看不出来。这里只在 BRA 面板把 danger 角标的
+   文字色恢复成语义红，其它面板的角标保持原样（见 R27）。 */
+html[data-rp-theme][data-rp-theme] [class*='rp-command-BRA'] [class*='MaterialIcon__indicator'][class*='MaterialIcon__danger'] {
+  color: var(--rp-skin-danger) !important;
 }
 html[data-rp-theme] [class*="RadioItem__value"],
 html[data-rp-theme] [class*="Checkbox__label"],
