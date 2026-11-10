@@ -20,6 +20,7 @@ import './CQ/CQ';
 import './CXOS/CXOS';
 import './CXTS/CXTS';
 import './DEV/DEV';
+import './DNOT/DNOT';
 import './FB/FB';
 import './FLEET/FLEET';
 import './FLEET/FLEETACT';
