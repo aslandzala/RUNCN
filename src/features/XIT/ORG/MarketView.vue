@@ -734,7 +734,7 @@ function bestAsk(orders: MarketOrder[]): MarketOrder | undefined {
   min-width: 14px;
   padding: 0 4px;
   border-radius: 2px;
-  font-size: 11px;
+  font-size: calc(10px + 1px * var(--rp-font-enlargement));
   line-height: 14px;
   text-align: center;
   font-weight: bold;
@@ -802,7 +802,7 @@ function bestAsk(orders: MarketOrder[]): MarketOrder | undefined {
   border-radius: 6px;
   background: rgba(var(--rp-accent-rgb), 0.12);
   color: rgb(255, 200, 64);
-  font-size: 11px;
+  font-size: calc(10px + 1px * var(--rp-font-enlargement));
   font-variant-numeric: tabular-nums;
 }
 .actionBar {

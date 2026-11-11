@@ -1,5 +1,6 @@
 import { watchEffect } from 'vue';
 import { userData } from '@src/store/user-data';
+import { applyThemeAppearance } from './theme-appearance';
 import { buildCeramicSkin, buildComponentCss } from './theme-ceramic';
 import { CUSTOM_THEME_ID_SET, DEFAULT_THEME_ID, THEMES, usesTokenPalette } from './theme-registry';
 
@@ -975,6 +976,8 @@ function buildCss(skin: Skin): string {
 }
 
 function init() {
+  watchEffect(() => applyThemeAppearance(document.documentElement, userData.settings));
+
   const style = document.createElement('style');
   style.id = STYLE_ID;
   document.head.appendChild(style);
