@@ -12,6 +12,7 @@ import { userData } from '@src/store/user-data';
 import { getTileState } from '@src/store/user-data-tiles';
 import { getWarehouseName } from '@src/features/XIT/CART/cart-utils';
 import { repairQuoteRef, REPD_QUOTE_PARAM } from '@src/features/XIT/CART/repair-quote';
+import { govhQuoteRef, GOVH_QUOTE_PARAM } from '@src/features/XIT/GOVH/govh-quote';
 import {
   deductNeeds,
   getBaseStoreInventory,
@@ -36,14 +37,20 @@ const parameters = useXitParameters();
 //   3. XIT CBUY REPD       -> XIT REPD 当前勾选后的维修购物清单（临时内存）
 // 后两种都是临时清单，不读写 userData.cart，不会覆盖用户在 XIT CART 里维护的清单。
 const repairMode = computed(() => parameters[0] === REPD_QUOTE_PARAM);
-const burnNaturalId = computed(() => (repairMode.value ? '' : (parameters[0] ?? '')));
+const govhMode = computed(() => parameters[0] === GOVH_QUOTE_PARAM);
+const burnNaturalId = computed(() =>
+  repairMode.value || govhMode.value ? '' : (parameters[0] ?? ''),
+);
 const burnMode = computed(() => burnNaturalId.value !== '');
-// 临时清单模式：自动刷新盘口、默认全选、价格进度条等行为对 2 / 3 一视同仁。
-const tempMode = computed(() => burnMode.value || repairMode.value);
+// 临时清单模式：自动刷新盘口、默认全选、价格进度条等行为对 2 / 3 / 4 一视同仁。
+const tempMode = computed(() => burnMode.value || repairMode.value || govhMode.value);
 // 读响应式 ref，而不是一次性取模块变量：CBUY 窗口会被复用，
-// 每次点「比价」都要立刻反映最新勾选的维修清单。
+// 每次点「比价」都要立刻反映最新勾选的临时清单。
 const repairQuote = computed(() => (repairMode.value ? repairQuoteRef.value : undefined));
 const repairNeeds = computed(() => repairQuote.value?.items ?? []);
+// GOVH 基建补给清单（按 ticker 合并的 30 天填充量）。
+const govhQuote = computed(() => (govhMode.value ? govhQuoteRef.value : undefined));
+const govhNeeds = computed(() => govhQuote.value?.items ?? []);
 const burnSite = computed(() =>
   burnMode.value ? sitesStore.getByPlanetNaturalIdOrName(burnNaturalId.value) : undefined,
 );
@@ -59,6 +66,10 @@ const sfcDestination = computed(() => {
   }
   if (repairMode.value) {
     return repairQuote.value?.naturalId ?? '';
+  }
+  // GOVH 补给要送到该星球：用星球编码作为 SFC 目的地（游戏 SFC 认星球/站点地址）。
+  if (govhMode.value) {
+    return govhQuote.value?.planet ?? '';
   }
   return '';
 });
@@ -104,16 +115,24 @@ const cartNeeds = computed(() =>
 // 补给天数的消耗品缺口（本身已相对基地库存）；购物车传用户手工维护的数量。
 // 所有仓库抵扣都在下面统一做，改这一份即可让比价 / ACT / CONTGEN 同步。
 const grossNeeds = computed(() =>
-  repairMode.value ? repairNeeds.value : burnMode.value ? burnNeeds.value : cartNeeds.value,
+  repairMode.value
+    ? repairNeeds.value
+    : govhMode.value
+      ? govhNeeds.value
+      : burnMode.value
+        ? burnNeeds.value
+        : cartNeeds.value,
 );
 
 // 比价模式下生成的 ACT 包 / CONTGEN 清单用独立名字，避免覆盖购物车那份。
 const listName = computed(() =>
   repairMode.value
     ? `REPD ${repairQuote.value?.naturalId ?? ''}`
-    : burnMode.value
-      ? `BURN ${burnNaturalId.value}`
-      : cart.value.name,
+    : govhMode.value
+      ? `GOVH ${govhQuote.value?.planet ?? ''}`
+      : burnMode.value
+        ? `BURN ${burnNaturalId.value}`
+        : cart.value.name,
 );
 
 const selectedTickers = ref<Set<string>>(new Set());
@@ -140,10 +159,12 @@ const autoOpenSfc = ref(false);
 // 所以从 BURN 点「比价」进来时默认把这两项一起勾上；购物车模式保持原样，
 // 不替用户预设飞行意图。
 watch(
-  burnMode,
-  value => {
-    transferToShip.value = value;
-    autoOpenSfc.value = value;
+  [burnMode, govhMode],
+  ([burn, govh]) => {
+    // BURN 与 GOVH 都是「交易所买 → 转移到飞船 → 送到星球」链路，默认勾转移到飞船；
+    // 只有 BURN 额外自动打开航行控制（GOVH 让玩家自己决定何时打开，少弹一个窗口）。
+    transferToShip.value = burn || govh;
+    autoOpenSfc.value = burn;
   },
   { immediate: true },
 );
@@ -644,6 +665,10 @@ function isBest(component: { bestExchange?: string }, code: string) {
           <strong>XIT REPD {{ repairQuote?.naturalId ?? '' }}</strong> ·
           {{ needs.length }} 种维修材料
         </template>
+        <template v-else-if="govhMode">
+          <strong>XIT GOVH {{ govhQuote?.planet ?? '' }}</strong> · 目标
+          {{ Math.round((govhQuote?.target ?? 0) * 100) }}% · {{ needs.length }} 种基建补给
+        </template>
         <template v-else-if="burnMode">
           <strong>XIT BURN {{ burnNaturalId }}</strong> · {{ needs.length }} 种需补物资
         </template>
@@ -729,6 +754,9 @@ function isBest(component: { bestExchange?: string }, code: string) {
       </template>
       <template v-else-if="repairMode">
         维修购物清单为空：请先在 XIT REPD 明细里勾选要修的建筑类型，再点「比价购买」。
+      </template>
+      <template v-else-if="govhMode">
+        基建补给清单为空：请先在 XIT GOVH 里勾选要补给的物料，再点「比价购买」。
       </template>
       <template v-else-if="burnMode">
         {{ burnNaturalId }} 当前没有需要补给的消耗品（按补给天数过滤）。

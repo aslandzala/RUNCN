@@ -135,7 +135,7 @@ buildCss(skin)  →  tokensFor(theme, skin)  →  CONTROL_CSS  →  buildCompone
 | ID | 现象 / 根因 | 固化规则（必须 / 禁止） | 落点 | 验证 |
 |---|---|---|---|---|
 | R01 | 色板颜色被扫描后压成中性灰 | **必须**把颜色字面量只放在精确 `html[data-rp-theme='<id>']` 块；**禁止**在组件规则里写裸色值 | `refined-prun.css` token 块 / `theme.ts TOKEN_RULE_RE` | `verify-ceramic-theme.mjs` 精确色值 |
-| R02 | `--rp-color-*` 被二次重映射成近白，浅字压浅底 | **必须**在 XIT / 原生 FIN 窗口内把 6 个 `--rp-color-*` 局部重定义指向 `--rp-skin-*`；组件里用 `--rp-skin-*`，**禁止**用 `--rp-color-accent-primary` 当文字色 | `refined-prun.css` 第 6) 组；`CXOS.vue` / `NX.vue` | `verify-round25.mjs` 变量亮度 <0.4 |
+| R02 | `--rp-color-*` 被二次重映射成近白，浅字压浅底 | **必须**在 XIT / 原生 FIN 窗口内把 6 个 `--rp-color-*` 局部重定义指向 `--rp-skin-*`；组件里用 `--rp-skin-*`，**禁止**用 `--rp-color-accent-primary` 当文字色。**`--rp-accent-rgb` 是装饰色（卡片底纹 / 分类头 / 边框 / 复选框 `accent-color`），同样禁止当文字色**：它是纯三元组不被重映射，但在 light/paper/ceramic 下是低饱和石板蓝 / 深棕 / 多彩强调色，配 `rgba(var(--rp-accent-rgb), 0.05)` 浅底只有 3.77~3.95:1；文字一律 `var(--rp-skin-ink, currentColor)` | `refined-prun.css` 第 6) 组；`CXOS.vue` / `NX.vue`；`GOVH.vue` | `verify-round25.mjs` 变量亮度 <0.4；`verify-govh-theme.mjs` |
 | R03 | 分类头底色被重映射 | **必须**用纯 RGB 三元组存 `--rp-inv-cat-*-rgb` / `--rp-window-border-rgb`，**禁止**写成 `#hex` | `refined-prun.css` 分节 A/B | `verify-theme-cat-colors.mjs` |
 | R04 | 同一颜色在多处重复定义，改一处漏一处 | **必须**保证每套主题只有一个颜色字面量来源：skin 模式在 `SKINS[id].vars`，token 模式在 `--rp-cc-*` 块，其余全部 `var()` 别名 | `theme-ceramic.ts buildCeramicSkin()` | 代码审查 |
 | R05 | 图表 canvas 不认 `var()` | **必须**让 token 模式主题在 CSS 里提供 `--rp-cc-cat-1..8-chart` 等；非 token 模式一律返回 `FALLBACK`，保证原样/light/paper 图表一字不变 | `chart-theme.ts` | `verify-ceramic-real-dom.mjs` 画布取色 |
@@ -168,6 +168,8 @@ buildCss(skin)  →  tokensFor(theme, skin)  →  CONTROL_CSS  →  buildCompone
 | R17 | 贯穿全屏的 TileDivider 竖条被染色 | 装饰线规则**必须** `:not([class*='TileDivider__'])`，且不能破坏 `cursor:col-resize` | `theme-ceramic.ts` 装饰线段 | `verify-round14` |
 | R24 | 原样主题下 FB 面板 BS / BURN 出现宽白边，中间 INV 却没有 | 槽位 `.slot` 的 `var(--rp-skin-*, <回退>)` 回退值**必须**是 `transparent`，**禁止**写浅色裸值（原样主题没有 skin 变量，浅色回退会从四周露出）；**必须**清零所有内嵌 `Tile__tile` 的 6px 外边距，使各槽铺满（缝隙 ≤2px）。回退里也**禁止**出现颜色字面量，否则会被 CSSOM 扫描 | `FB.vue .slot` / `.slot [class*='Tile__tile']` | `verify-round26.mjs` 四槽 gap / 槽位底色 |
 | R25 | INV / SHPI 右侧两套滚动条叠加；紧凑模式物料全显却强制出滚动条 | 游戏 ScrollView 同时画自绘 6px 轨道与浏览器滚动条；`overflow:scroll` 无溢出也画轨道。**必须**把 `ScrollView__view` 改 `overflow:auto`、在本作用域把 `scrollbar-width/color` 清回 `auto`、隐藏自绘 `track/thumb`、只留 `::-webkit-scrollbar` 4px 且 `::-webkit-scrollbar-button{display:none}`；**禁止**让主题全局 `scrollbar-color` 覆盖本作用域（会让 Chromium 忽略 webkit 细条改画 ≈10px 标准条）。此组是布局修复，**不带**主题前缀 | `refined-prun.css` 第 7) 组 | `verify-round26.mjs` `barWidth===0` / `tracks===0` / 溢出时细条出现 |
+| R28 | XIT GOVH 自选表列错位：数字表头仍左对齐，`<td>` 被 flex 化后列宽跟着内容跑 | CSS Modules 里 `.table th, .table td` 特异性是 (0,1,1)，裸 `.numCell` / `.checkCol` / `.empty` 只有 (0,1,0)，**必须**写成 `.table .numCell` / `.table .checkCol` / `.table .empty` 才能生效；`.numCol` 必须显式定义 `text-align:right`。**禁止**把 `display:flex` 直接挂在 `<td>` 上（会破坏 table-cell 列宽），flex 只放在 `<td>` 内部 wrapper。新增的「计算过程」等派生文字**必须**走 `var(--rp-skin-ink, currentColor)`，不复用装饰色 `--rp-accent-rgb`（沿用 R02） | `GOVH.vue` `.numCol` / `.table .numCell` / `.materialCell` / `.needsCell` / `.calcCell` | `govh-verify-e2e.mjs` 断言数字右对齐、物料 td 为 `table-cell`、wrapper 为 `flex`、单价无 `input[inputmode=decimal]`；`verify-govh-theme.mjs` 三主题无低对比度 |
+| R29 | XIT GOVH「本期 POPR 明细 + 六类需求」上下堆叠过长，改双栏又被表格撑破列宽 | 面板宽度由游戏窗口决定，**禁止**用 viewport `@media` 判断面板宽度。**必须**用 `grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr))`，窄面板自动落回单栏；表格外层 wrapper 必须 `min-width:0; overflow-x:auto`，列容器也必须 `min-width:0`，**禁止**在 grid 列上直接 `overflow:hidden` 截断表格。双栏紧凑表格用 `.table.miniTable` 抬特异性到 (0,2,1) 后才能覆盖 `.table th, td` 的 padding。新增小标题 / 项目行文字**必须**走 `var(--rp-skin-ink, currentColor)`，**禁止**裸色值与 `--rp-accent-rgb`（沿用 R02） | `GOVH.vue` `.reportGrid` / `.reportColumn` / `.miniTable` / `.subTitle` / `.projectLine` | `govh-verify-e2e.mjs` 断言明细 7 行 × 五类人口、双栏 `display:grid && children===2 && sameRow`、无 `Population__graph` DOM；`verify-govh-theme.mjs` 三主题 435 个文字节点 0 低对比度 / 0 小字 / 0 opacity 压淡 |
 
 ### E. 语义色与数字
 
@@ -248,6 +250,11 @@ buildCss(skin)  →  tokensFor(theme, skin)  →  CONTROL_CSS  →  buildCompone
 | 2026-11-09（未提交） | **本框架固化**：注册表、三种 mode、组件映射骨架参数化、本文件 | 主题 id/描述散在 7 处手工同步；105 处硬编码 `ceramic-colorful` 前缀使新主题必须整段复制；20+ 条踩坑修正只存在于代码注释与验收脚本，没有单一事实源 | §0~§6 全部；R01、R04、R22 补充 | 类型检查 + 完整构建链 + 真机三主题回归（见 §8） |
 | 2026-11-09（未提交） | FB 槽位白边、INV 双滚动条 / 紧凑强制滚动条、原生状态斜纹发白，共 4 项 | ① FB 槽位浅色 `var()` 回退 + 原生 6px 外边距 → 原样主题 BS/BURN 露出 14px 宽白边，INV 已铺满所以看不到；② `overflow:scroll` 无溢出也画轨道、紧凑模式清零负 margin 暴露第二套，主题全局 `scrollbar-color` 又让细条变 ≈10px 标准条；③ 游戏原生斜纹颜色是 `repeating-linear-gradient` 里的**字面量**，被 CSSOM 的 gradient 角色映射刷白，与 `--rp-color-*` 污染无关，第 6) 组变量兜底覆盖不到。一律选**局部 CSS 兜底**而非改引擎 `semanticOverride()`：后者只处理 `background-color`、不处理 `background-image`，要扩展需动 Skin 接口 + 三份色板，回归面最大；槽位改透明回退 + 清零外边距比改盒模型高度更安全；滚动条只隐藏自绘轨道、保留 4px webkit 细条，`overflow:auto` 天然按需 | 新增 R24、R25、R26 | `verify-round26.mjs`（三主题 + 原样真机）、完整构建链、既有主题回归脚本 |
 | 2026-11-10（未提交） | 新增 `--rp-skin-danger`（light `#9c3b3b` / paper `#9b4741` / ceramic `var(--rp-cc-status-danger-text)`）；CONTROL_CSS 角标段补 BRA 的 danger 角标规则 | 用户反馈 BRA「所需材料」缺料看不出红：游戏靠 `MaterialIcon__danger` 标缺料，但统一角标文字色规则（墨色 `!important`）把它压成 rgb(38,51,61)。选「补一条更高特异性规则 + 新语义 token」而不是放宽统一角标规则：统一角标色是上一轮为可读性定的，放宽会连带改所有面板图标角标；也不写裸色值（R01），只在三套色板各加一个 token。作用域收到 BRA，避免波及 INV/SHPI 紧凑角标 | 新增 R27 | `verify-bra-material-red.mjs`：BRA danger 角标 `rgb(156,59,59)`、同排非 danger 角标仍为墨色、`default` 主题无 `#rprun-theme` 样式 |
+| 2026-11-11（未提交） | 新增 XIT GOVH 面板自带 CSS；`.statValue`/`.buildingLevel`/`.emptyState code` 文字色从 `rgb(var(--rp-accent-rgb))` 改为 `var(--rp-skin-ink, currentColor)` | 三主题回归发现暖米纸 / 陶瓷白多彩下五类人口幸福度大数字对比度只有 3.95 / 3.77（<4.5）：`--rp-accent-rgb` 是**装饰色**（该主题为深棕/多彩强调）且 `.statCell` 正用它的 0.05 透明底，同色字压同色浅底必然不够。它虽是纯三元组不被 CSSOM 重映射，但本质上不是文字 token。R02 原只点名 `--rp-color-accent-primary`，本次把 `--rp-accent-rgb` 一并列入禁止当文字色，文字统一走 `--rp-skin-ink`。装饰用途（边框 / 复选框 `accent-color` / 卡片底纹）保留不变 | R02 补充（明确 `--rp-accent-rgb` 禁止当文字色） | `verify-govh-theme.mjs`：三主题 × GOVH 面板 0 低对比度 / 0 小字 / 0 opacity 压淡；原样主题现场（url/主题/紧凑态/窗口集合）恢复一致 |
+| 2026-11-11（未提交） | GOVH 表头从手输星球改为「我管理的政府」下拉；新增本地读取层 `govh-governments.ts`，面板内用原生 `<select>` + 显式「自定义编码…」兜底 | 用户希望不用手输星球编码。运行时不能连 FIO，也不能硬编码账号数据；`userDataStore.contexts` 只有 `GOVERNMENT` 类型和 context id，没有星球字段。实机「视图」菜单的 `a[href*="context="]` 同时带 context id 和内层 span 的 `星球名 (naturalId)`，两边按 context id 关联即可得到纯本地映射；只认 `GOVERNMENT` 避免把公司上下文混进下拉。自定义编码保留为显式兜底，不默认显示输入框，避免面板自身 DOM 更新通过 MutationObserver 触发无意义刷新。新增的 `select` 文字走 `var(--rp-skin-ink, currentColor)`，继续遵守 R02，不用 `--rp-accent-rgb` | 沿用 R02（无新规则） | `vue-tsc` + 完整构建链；`govh-verify-e2e.mjs` 39/39（下拉选项 / 公司上下文排除 / 切换政府自动重读 / 自定义编码大小写回正 / 无默认输入框 / 零外部请求 / 无残留窗口）；`verify-govh-theme.mjs` 17/17（下拉 `select` 文字纳入对比度测量，三主题 worstCR 6.02 / 5.33 / 6.18） |
+| 2026-11-11（未提交） | GOVH「补给方案 · 全部物料自选」表：`.numCol` 显式右对齐，裸 `.numCell` / `.checkCol` / `.empty` 改成 `.table .xx` 抬特异性；`<td>` 的 `display:flex` 挪进内部 wrapper；新增「计算过程」列（30 天毛量 − 下一次消耗 − 储备 = 待补）；单价改只读文本并复用 BPC/BMAT/CBUY 的本地订单簿口径；底部删两个购物车按钮；五类人口卡片去掉「人口 0/1/…」前缀 | 用户反馈表头/单元格错位、单价不该手填、数量要扣基建内部两栏存量。CSS Modules 的 `.table th, .table td` 特异性 (0,1,1) 会压掉裸类 (0,1,0)，`<td display:flex>` 会破坏 table-cell 列宽；手填单价会脱离 BPC/BMAT/CBUY 的同一口径；基地仓库与「库存/贡献」不是用户要扣的设施内部空间。新增派生文字继续走 `var(--rp-skin-ink, currentColor)`，不碰装饰色 `--rp-accent-rgb`（沿用 R02），原样主题继续回退 `currentColor` | 新增 R28；沿用 R02 | `scripts/test-govh-model.mjs` 22/22；`govh-verify-e2e.mjs` **47/47**（数字列右对齐、td=`table-cell` / wrapper=`flex`、单价无 `input[inputmode=decimal]`、20 行计算过程含两栏存量、底部仅两个按钮、零外部请求、无残留窗口）；`govh-verify-dom.mjs` 13/13（POPID progress 当前值）；`verify-govh-theme.mjs` **17/17**（三主题 0 低对比度 / 0 小字 / 0 opacity 压淡，现场恢复一致） |
+| 2026-11-11（未提交） | GOVH「现状与目标预览」：新增本期 POPR 报告明细（人口 / 变更 / 移民 / 教育（增/减）/ 幸福 / 失业 / 待聘 × 五类人口，含报告编号与项目说明，不含折线图），与六类需求表改左右双栏；删除底部会循环打开自身的 `XIT GOVH <planet>` 链接；新增会话级快照缓存与价格订阅去重 | 用户反馈现状栏目只有人口、六类需求表太占高；POPR 原生明细是 7 行表格，折线图 DOM（`Population__graph` / `PopulationChart__container`）不纳入。面板宽度由游戏窗口决定，viewport 媒体查询不可靠，故用 `auto-fit + minmax(min(100%, 330px), 1fr)` 让窄面板自动落回单栏；表格各自 `overflow-x:auto` 不挤压列宽。底部 `PrunLink` 指向当前命令本身，点击会再开一个 GOVH 面板，直接删除。每次打开 / 切回都重开 POPR + POPI + 5 座 POPID hidden 窗口约 10s，改为 `sessionStorage` 按星球缓存 5 分钟（「刷新数据」强制绕过并覆写）；价格订阅按 `ticker.exchange` 去重，「更新价格」等待订阅结束回收提示 | 新增 R29；沿用 R02 | `govh-verify-e2e.mjs` **58/58**（7 行明细、双栏 `sameRow`、无折线图 DOM、无自链接、首开冷读、切回命中缓存、刷新数据强制重读、更新价格提示回收）；`govh-verify-dom.mjs` 13/13；`verify-govh-theme.mjs` **17/17**（435 个文字节点 0 低对比度 / 0 小字 / 0 opacity）；`govh-verify-cache-timing.mjs` 冷读 9.6~14.7s → 缓存切回 35ms，强制刷新 9.6s |
+| 2026-11-11（未提交） | GOVH 五类人口大卡片删除重复的人口数量行（只留等级 + 幸福度），移除 `.statSub` 死样式；快照恢复从 `onMounted` 异步读缓存前移到 `setup` 同步恢复（`restoreFromCache()`），根元素加 `data-govh-restored=cache\|cold` 标记；`onMounted` 命中缓存时跳过 `refreshData` 重读 | 用户反馈两件事：① 上方人口卡片的人口数与下方 POPR 报告明细「人口」行重复；② 每次切换 / 激活 GOVH 都要重新载入计算过程、卡。实测定位：`solve()` 仅 0.109ms、静止 6s DOM 零 mutation，故非算法慢亦非订单簿推送；真因是切换视图重建 XIT 磁贴 → 组件重新挂载 → `snapshot` 初始 undefined → 首绘空态 → `onMounted` 读缓存赋新引用 → 20 行 × 11 列整表（含计算过程长文本）二次重建。选在 `setup` 阶段同步恢复 `sessionStorage` 快照，让首次渲染即完整，而非改 XIT 挂载框架（影响所有命令、回归面大）；价格仍走 `cxobStore` 实时源不进缓存，「刷新数据」仍强制重读，不牺牲可刷新性。删除的 `.statSub` 用裸灰值但仅此一处、随元素一并移除；保留的卡片文字继续走 `var(--rp-skin-ink, currentColor)`（沿用 R02），原样主题回退 `currentColor` | 沿用 R02 / R29（无新规则） | `govh-verify-e2e.mjs` **60/60**（人口卡片只 2 行含 %、无独立人口数字行）；`govh-verify-remount.mjs` **8/8**（`force` 新建实例首帧 130ms 即 20 行完整、`data-govh-restored=cache`、无冷读、无「0→20 行」二次重建）；`govh-verify-theme.mjs` **17/17**（429 节点，少 5 个人口数字，三主题 0 低对比度 / 0 小字 / 0 opacity）；`govh-verify-dom.mjs` 13/13；`govh-verify-cache-timing.mjs` 冷读 8709ms / 缓存切回 **9ms** / 强制 8208ms |
 
 
 **新行模板**
@@ -264,13 +271,13 @@ buildCss(skin)  →  tokensFor(theme, skin)  →  CONTROL_CSS  →  buildCompone
 
 ```
 ./node_modules/.bin/vue-tsc --noEmit
-./node_modules/.bin/vite build
+./node_modules/.bin/vite build --emptyOutDir=false
 ./node_modules/.bin/vite build --config vite.content.config.mts
 node scripts/fix-innerHTML.mjs
 cd ../prun-cdp && node reload-ext.mjs && node refresh-page.mjs
 ```
 
-构建前移走 `dist/virtual`（构建会自动重建）。刷新后 SPA 可能自行跳 screen，**不要擅自切回**，如实告知用户。
+`--emptyOutDir=false` 是本环境 safe-delete 保护下的固定写法（Vite 官方开关），避免清空 `dist/virtual` 时被拦截；内容脚本构建配置本身就是 `emptyOutDir: false`。刷新后 SPA 可能自行跳 screen，**不要擅自切回**，如实告知用户。
 
 **离线**：`prun-cdp/verify-ceramic-contrast.mjs`（色板 WCAG 2.1 60+ 组）。
 
@@ -285,6 +292,11 @@ cd ../prun-cdp && node reload-ext.mjs && node refresh-page.mjs
 | `verify-theme-cat-colors.mjs` | light/paper × compact on/off × 独立 INV：分类头底色未被重映射、≥4.5 |
 | `verify-round24.mjs` / `verify-round23.mjs` | BRN 四色、CXOS 无裸硬编码、悬浮三角全消失、XIT 表头 |
 | `verify-round26.mjs` | FB 四槽 gap / 槽位底色（含原样）、INV 双轨消除与按需 4px 细条、三主题 × 状态斜纹运行/完成/失败取色、原样主题红线 |
+| `govh-verify-e2e.mjs` | GOVH 端到端 58 项：政府下拉 / 自动重读 / 自定义兜底、POPR+POPI+POPID 取数、7 行本期报告明细 × 五类人口、明细与六类需求双栏且无折线图、无自链接、首开冷读 / 切回命中缓存 / 刷新数据强制重读 / 更新价格提示回收、20 行物料表布局与计算过程、只读统一单价、70%/100%、CBUY / 复制 JSON、零外部请求、无残留窗口 |
+| `govh-verify-dom.mjs` | GOVH DOM 取数 13 项：五类人口 / 六类满足度 / 14 座建筑等级 / POPID「下一次消耗 + 储备」progress 当前值，不读库存 / 贡献 |
+| `verify-govh-theme.mjs` | GOVH 三主题可读性 17 项 + 原样现场（url / 主题 / 紧凑态 / 窗口集合）恢复 |
+| `govh-verify-cache-timing.mjs` | GOVH 加载计时：冷读 / 会话缓存切回 / 强制刷新三段耗时与 info 文案，验证缓存不牺牲可刷新性 |
+| `govh-verify-remount.mjs` | GOVH 重新挂载首绘即完整 8 项：`force` 新建实例首帧即 `data-govh-restored=cache` + 20 行物料表、无冷读、无「0→20 行」二次重建、≤1.5s 完整；只关闭本脚本新建窗口 |
 
 **结束必须**：恢复 url / screen / 主题 / 紧凑态 / 窗口集合，断言无残留测试窗口。
 

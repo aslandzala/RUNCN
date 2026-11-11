@@ -35,6 +35,7 @@ import './FINCH/FINCH';
 import './FX/FX';
 import './FXTS/FXTS';
 import './GIF/GIF';
+import './GOVH/GOVH';
 import './HEALTH';
 import './LOAN/LOAN';
 import './LMSCAN';
