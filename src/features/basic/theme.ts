@@ -111,6 +111,13 @@ const SKINS: Record<string, Skin> = {
       // CXOS「已成交」专用：与「买入」的墨绿、已挂单的深蓝都拉开色相，
       // 避免状态文字与买卖方向混成同一种颜色。
       '--rp-skin-action-done': '#5b4a8a',
+      // CXPO「买入」语义绿按钮（约原生按钮 1/3 色深）：浅底 + 深语义字。
+      '--rp-skin-success': '#2f6b48',
+      '--rp-skin-success-bg': '#e8f2eb',
+      '--rp-skin-success-border': '#8bb69c',
+      // CXPO「卖出」与其它 danger 按钮：浅红底 + 深红字（同为 1/3 色深）。
+      '--rp-skin-danger-bg': '#f7eaea',
+      '--rp-skin-danger-border': '#c98f8f',
     },
     palette: {
       slate: {
@@ -147,8 +154,10 @@ const SKINS: Record<string, Skin> = {
       lineSoft: 'rgba(51, 86, 111, 0.6)',
     },
     progress: {
-      primary: '#33566f',
-      secondary: '#8a6327',
+      // 燃料条主/次色深度减半（R33）：原深石板蓝 / 赭棕 → 浅版，避免 FLT 燃料条
+      // 在自定义浅色主题下过重；warning/success/danger 等语义色保持原对比度。
+      primary: '#99abb7',
+      secondary: '#c5b193',
       warning: '#9c3b3b',
       success: '#2f6b48',
       danger: '#9c3b3b',
@@ -201,6 +210,13 @@ const SKINS: Record<string, Skin> = {
       // 缺料/危险语义红：取自本主题 palette.red.text（见 R27）。
       '--rp-skin-danger': '#9b4741',
       '--rp-skin-action-done': '#5e4a7a',
+      // CXPO「买入」语义绿按钮（约原生按钮 1/3 色深）：浅底 + 深语义字。
+      '--rp-skin-success': '#4a7048',
+      '--rp-skin-success-bg': '#eaf0e2',
+      '--rp-skin-success-border': '#9fb58a',
+      // CXPO「卖出」与其它 danger 按钮：浅红底 + 深红字（同为 1/3 色深）。
+      '--rp-skin-danger-bg': '#f7e8e2',
+      '--rp-skin-danger-border': '#c99a8c',
     },
     palette: {
       slate: {
@@ -237,8 +253,9 @@ const SKINS: Record<string, Skin> = {
       lineSoft: 'rgba(138, 90, 28, 0.6)',
     },
     progress: {
-      primary: '#8a5a1c',
-      secondary: '#3f6b70',
+      // 燃料条主/次色深度减半（R33）：原深赭金 / 青灰 → 浅版，避免 FLT 燃料条过重。
+      primary: '#c5ad8e',
+      secondary: '#9fb5b8',
       warning: '#9b4741',
       success: '#4a7048',
       danger: '#9b4741',
@@ -297,6 +314,35 @@ html[data-rp-theme] button:disabled {
   background-color: var(--rp-skin-disabled-bg) !important;
   border-color: var(--rp-skin-disabled-border) !important;
   opacity: 1 !important;
+}
+/* CXPO 买入（success）与卖出（danger）按钮：在自定义主题下也要保留绿/红语义，
+   但深度降到原主题的约 1/3（浅底 + 深语义字），避免与原游戏深色按钮一样重。
+   hover 仅加深边框、保持浅底；active 用边框色作按压反馈（R32）。 */
+html[data-rp-theme] [class*="Button__btn"][class*="Button__success"] {
+  color: var(--rp-skin-success) !important;
+  background-color: var(--rp-skin-success-bg) !important;
+  border-color: var(--rp-skin-success-border) !important;
+}
+html[data-rp-theme] [class*="Button__btn"][class*="Button__success"]:hover {
+  color: var(--rp-skin-success) !important;
+  background-color: var(--rp-skin-success-bg) !important;
+  border-color: var(--rp-skin-success) !important;
+}
+html[data-rp-theme] [class*="Button__btn"][class*="Button__success"]:active {
+  background-color: var(--rp-skin-success-border) !important;
+}
+html[data-rp-theme] [class*="Button__btn"][class*="Button__danger"] {
+  color: var(--rp-skin-danger) !important;
+  background-color: var(--rp-skin-danger-bg) !important;
+  border-color: var(--rp-skin-danger-border) !important;
+}
+html[data-rp-theme] [class*="Button__btn"][class*="Button__danger"]:hover {
+  color: var(--rp-skin-danger) !important;
+  background-color: var(--rp-skin-danger-bg) !important;
+  border-color: var(--rp-skin-danger) !important;
+}
+html[data-rp-theme] [class*="Button__btn"][class*="Button__danger"]:active {
+  background-color: var(--rp-skin-danger-border) !important;
 }
 html[data-rp-theme] input,
 html[data-rp-theme] select,

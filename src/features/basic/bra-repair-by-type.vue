@@ -47,6 +47,11 @@ const groups = ref<TypeGroup[]>([]);
 const missing = ref<{ ticker: string; need: number; have: number }[]>([]);
 const armedTicker = ref<string | undefined>(undefined);
 const busyTicker = ref<string | undefined>(undefined);
+// 二次确认除了记录建筑类型，还要绑定「当前基地」与「当前待维修建筑集合」：调高阈值 /
+// 切换基地会让实际要修的栋数变多，若只按类型确认，200ms 刷新延迟内按钮仍显示旧栋数
+// 却提交了更多维修。两者任一变化都重置确认（PR #60 审查 #221）。
+const armedSiteId = ref<string | undefined>(undefined);
+const armedTargetSig = ref<string | undefined>(undefined);
 const message = ref<string | undefined>(undefined);
 
 let armTimer: number | undefined;
@@ -242,21 +247,53 @@ async function repairType(group: TypeGroup) {
 
 function disarm() {
   armedTicker.value = undefined;
+  armedSiteId.value = undefined;
+  armedTargetSig.value = undefined;
   clearTimeout(armTimer);
+}
+
+// 当前基地 + 当前阈值下，该类型待维修建筑的 id 签名（排序后拼接）。
+// 用它和二次确认时记录的签名比对：基地或建筑集合变化即视为需要重新确认。
+function targetSignature(group: TypeGroup): string | undefined {
+  const current = site.value;
+  if (!current) {
+    return undefined;
+  }
+  const threshold = readThreshold();
+  const ids = current.platforms
+    .filter(
+      platform =>
+        isRepairableBuilding(platform) &&
+        platform.module.reactorTicker === group.ticker &&
+        typeof platform.condition === 'number' &&
+        platform.condition < threshold,
+    )
+    .map(platform => platform.id)
+    .sort();
+  return ids.join(',');
 }
 
 async function onClick(group: TypeGroup) {
   if (busyTicker.value !== undefined || group.count === 0) {
     return;
   }
-  if (armedTicker.value !== group.ticker) {
-    armedTicker.value = group.ticker;
-    clearTimeout(armTimer);
-    armTimer = window.setTimeout(disarm, 5000);
+  const sig = targetSignature(group);
+  // 二次确认只在「同一基地 + 同一建筑集合」下有效；基地或建筑集合变化（如调高阈值）
+  // 一律重新武装，避免提交比用户看到的多得多的维修、并消耗材料（PR #60 审查 #221）。
+  if (
+    armedTicker.value === group.ticker &&
+    armedSiteId.value === site.value?.siteId &&
+    armedTargetSig.value === sig
+  ) {
+    disarm();
+    await repairType(group);
     return;
   }
-  disarm();
-  await repairType(group);
+  armedTicker.value = group.ticker;
+  armedSiteId.value = site.value?.siteId;
+  armedTargetSig.value = sig;
+  clearTimeout(armTimer);
+  armTimer = window.setTimeout(disarm, 5000);
 }
 
 let observer: MutationObserver | undefined;

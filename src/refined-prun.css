@@ -861,6 +861,11 @@ html[data-rp-theme='ceramic-colorful'] {
   --rp-cc-cat-2-text: #235148;
   --rp-cc-cat-2-border: #8fbfb5;
   --rp-cc-cat-2-chart: #3f887d;
+  /* 进度条主/次填充：由 cat-1 / cat-2 图表色减半深度得到（R33），专用于 <progress>
+     容量条（FLT 燃料条等），不再复用图表实色，避免浅色陶瓷下燃料条过重。
+     与图表色分离，改这里不影响图表序列配色。 */
+  --rp-cc-progress-primary: #9fc3d4;
+  --rp-cc-progress-secondary: #9fc4be;
   --rp-cc-cat-3-bg: #eff0da;
   --rp-cc-cat-3-text: #505024;
   --rp-cc-cat-3-border: #bfc185;

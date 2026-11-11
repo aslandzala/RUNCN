@@ -3,10 +3,20 @@
 > 状态：**已实现并经真机验收**（2026-11-11）。本文继续作为固化系数与实现口径的事实源；
 > 最新口径：单价统一复用 BPC/BMAT/CBUY 的 `computeComponents()`，待补量扣除政府基建设施
 > 「下一次消耗 + 储备」内部存量，并在表格「计算过程」列展示算式；底部不再放购物车按钮。
-> 验收记录以 `scripts/test-govh-model.mjs`、`prun-cdp/govh-verify-dom.json`、
-> `prun-cdp/govh-verify-e2e.json`、`prun-cdp/verify-govh-theme.json` 为准。
+> 补给方案按建筑分组，「建筑」与「覆盖需求」列同一建筑 `rowspan` 合并，组间只保留粗线与建筑列色条，无分组底色；
+> 前四列固定 `建筑 / 覆盖需求 / 选 / 物料`，勾选只从「选」列向右染色、覆盖需求与「选」列之间有 2px 边界；
+> 自有基地星球下拉与政府下拉统一 11px，占位不带星球数量；
+> 维生行角标不挂浮窗，下方用「维生」需求定稿说明。新增「维生预期」两档（按当前 / 预计补齐 100%，默认后者），
+> 后五类按所选假设备货；预览同时给出预测值与游戏当前实际显示值，六类需求表删除恒空的「封顶」列，
+> 三段说明移到双栏之外同栅格排布。表头选「自定义编码…」后可从「自有基地星球」下拉选择
+> （游戏约束一星球一基地，选项不显示基地数量），也可手输；焦点被游戏容器抢走时会自动补回。
+> 验收记录以 `scripts/test-govh-model.mjs`、`prun-cdp/govh-verify-dom.mjs`、
+> `prun-cdp/govh-verify-e2e.mjs`、`prun-cdp/verify-govh-theme.mjs`、
+> `prun-cdp/govh-verify-remount.mjs` 与 `prun-cdp/govh-verify-cache-timing.mjs` 为准。
+> 最终真机验收：`govh-verify-e2e.mjs` **88/88**、`verify-govh-theme.mjs` 20/20、
+> `govh-verify-dom.mjs` 13/13、`govh-verify-remount.mjs` 8/8、`test-govh-model.mjs` 26/26。
 > 目标：在独立 XIT 面板 `XIT GOVH` 内，按六类需求 × 五类人口反算达到
-> 70% / 100% 满意度所需的基建补给物料与数量，列出全部物料供自选，并联动
+> 100% 满意度所需的基建补给物料与数量（2026-11-11 起目标固定 100%，70% 档已移除），列出全部物料供自选，并联动
 > 生成采购清单 / 打开购物界面。
 > 红线：**只连游戏本地数据**（本地 store + 原生窗口 DOM + `showBuffer` 订阅），
 > 不引入 FIO / Prunplanner / oogcapitalmanagement 等任何外部运行时请求。
@@ -21,7 +31,7 @@
 | 数据来源 | 外部公式/系数**一次性固化**；运行时只用游戏本地数据 |
 | 命令形态 | 独立命令 `XIT GOVH`（不嵌进 POPI） |
 | 口径 | **六类需求**（维生/安全/健康/舒适/文化/教育）× **五类人口**（先驱/定居/技术/工程/科学） |
-| 目标档位 | 可选 70% / 100%（先做这两档，架构上支持任意 0~1） |
+| 目标档位 | 固定 100%（2026-11-11 移除 70% 档：默认维生预期已是「预计补齐 100%」，再留 70% 等于同一目标两个旋钮；求解器现硬编码 100% 目标、不再接受任意 `target`，「省钱档」旋钮已从设计与模型中彻底移除） |
 | 物料范围 | 列出**全部**可补给物料供勾选，而非只给最低限度 |
 | 联动 | 计算出的清单能生成 `XIT CBUY GOVH` 临时比价清单，或复制为 XIT JSON 供 `XIT CART` 导入；GOVH 面板内不再放购物车按钮 |
 
@@ -70,7 +80,14 @@ fulfillment[教育] = min(raw教育, min(舒适, 文化))
 ```
 
 > 这解释了 oog governor-helper 结果里「健康 314% / 舒适 132%」但满足度都显示 71.8% —— 被下一层的短板封顶。
-> **GOVH 必须实现封顶**，否则会把玩家引到无效的超额采购上。
+> **GOVH 必须实现封顶**，否则会把玩家引到超额采购上。
+>
+> **维生预期（2026-11-11）**：政府改不了维生，但非宜居星球的住房缺口通常只是一个人口报告周期内的暂时状态。
+> 面板提供两档假设：`按当前 XX%`（`lifeBaseline = POPR 现值`、`effectiveTarget = min(target, 维生现值)`）
+> 与 `预计补齐 100%`（`lifeBaseline = 1`、`effectiveTarget = target`，默认）。
+> 采购量按 `effectiveTarget` 备足 30 天，预览按 `lifeBaseline` 封顶给出**预测值**，
+> 另用 `displayNow` 给出游戏此刻**实际显示值**，两者不可混为一谈。
+> 肥沃星球维生恒 100%，两档等价、按钮禁用。
 
 ### 2.3 人口幸福度（与需求满足度分开算，但受其影响）
 
@@ -211,7 +228,8 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 ## 5. 计算模型（GOVH 求解流程）
 
 ```
-输入：星球编码 planet、目标 target(0.7 / 1.0)、人口 pop[5]、基地数 siteCount、
+输入：星球编码 planet、目标固定 100%（求解器硬编码，不再接受任意 target）、维生预期 lifeSupportAssumption(current / full，默认 full)、
+      人口 pop[5]、基地数 siteCount、
       已建造建筑等级 levels[ticker]、当前满足度 fulfillment[6]、当前幸福度 happiness[5]、
       各建筑各物料设施存量 facilityStocks[building][material]
       （人口 / 满足度 / 幸福度来自 `POPR`，等级来自 `POPI`，设施存量来自 `POPID` 详情窗口，
@@ -220,7 +238,8 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 1. needsNeeded[need]   = Σ_tier pop[tier] × weight[tier][need]
 2. rawProvided[need]   = 固定基线 + Σ_building (每级贡献 × 有效等级 × 供给率)
      固定基线：
-       - 维生 LIFE_SUPPORT = needsNeeded[LIFE_SUPPORT] × POPR 当前维生满足度。
+       - 维生 LIFE_SUPPORT = needsNeeded[LIFE_SUPPORT] × lifeBaseline。
+         lifeBaseline 由维生预期派生：按当前 = POPR 当前维生满足度；预计补齐 100% = 1.0（默认）。
          维生由住房 / 星球肥沃度决定，GOVH 基建物料改变不了它；
          不能取 0，否则 2.2 的 4 层封顶会把全部需求误压成 0%。
        - 安全 / 健康各 += 50 × siteCount（玩家自有基地）。
@@ -230,7 +249,10 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
      有效等级 = 当前已建造等级
      ！部分存量的物料按「买满 30 天后贡献 1/n」处理；未买满又未勾选的物料不计入预览。
 3. fulfillment[need]   = clamp(rawProvided / needsNeeded, 0, 1) → 再按 2.2 分层封顶
-4. 缺口 gap[need]      = max(0, needsNeeded[need] × target − provided[need])
+4. 缺口 gap[need]      = max(0, needsNeeded[need] × effectiveTarget − provided[need])
+     effectiveTarget = 预计补齐 100% ? target : min(target, lifeBaseline)
+     Phase2 冗余剔除用同一组 effectiveTarget / lifeBaseline 判达标
+     （历史 bug：曾误用含封顶的 target，维生低于目标时恒 false，待剔除物料被立刻加回）
 5. 求解：对每个 (建筑, 物料) 组合，实际等级下的每 credit 贡献
            = (该物料覆盖的各类需求贡献之和 × 有效等级) / 日成本
    - 单价直接复用 BPC/BMAT/CBUY 的 `bp-utils.computeComponents()` /
@@ -268,7 +290,7 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 ### 6.1 布局（分区）
 
 ```
-┌─ XIT GOVH · 管理的政府 [Shardonia b (VH-192b) ▾]  目标 [70% ⦿ 100% ○]  [刷新数据] ┐
+┌─ XIT GOVH · 管理的政府 [Shardonia b (VH-192b) ▾]  维生预期 [当前 ○ 补齐 ⦿]  [刷新数据] ┐
 │ ① 现状：五类人口幸福度卡片（只留等级 + 幸福度，人口数见下方报告明细） │
 │    先驱 98.9% │ 定居 20.0% │ 技术 63.2% │ 工程 46.6% │ 科学 20.0% │
 │    ┌ 本期人口报告（POPR 原生，无折线图）┐ ┌ 六类需求现状 → 补足后预览 ┐ │
@@ -286,6 +308,10 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 └───────────────────────────────────────────────────────────────┘
 ```
 
+补给方案表按建筑分组：「建筑」列与「覆盖需求」列同一建筑的物料行都用 `rowspan` 合并为单一单元格；
+组首行加 2px 上边框，合并建筑单元格左侧 2px 装饰色条，合并单元格强制透明底色以抵消游戏原生
+`!important` 灰底，不再使用交替淡底（R30）。这样 20 行物料表仍保留全部物料，但建筑边界一眼可辨。
+
 ### 6.2 UI/主题约定（强制）
 
 - 组件用 `MaterialIcon`（物料图标+数量角标）、`NumberInput`/`SelectInput`/`SearchInput`、
@@ -296,6 +322,29 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
   `var(--rp-skin-ink, currentColor)`。
 - 表格用原生 `<table>`，数字列右对齐靠 `.table .numCell` / `.table .numCol`（R28），
   flex 只放在 `<td>` 内部 wrapper，不直接 `<td display:flex>`。
+- 补给方案行按 `UPKEEP_BUILDINGS` 顺序连续生成，`solve()` / `filteredOptions` 只做 filter 保序；
+  每行带 `data-govh-col` / `data-govh-building-start` / `data-govh-group`，建筑列与覆盖需求列都在组首 `rowspan` 合并。
+  覆盖需求显示该建筑组的需求并集，按 `INFRA_NEEDS` 排序，不含维生。`rowspan` 后非组首行少两个 `<td>`，
+  验收必须按列属性定位，**禁止**用 `row.children[表头索引]`（R30）。
+- 建筑分组的视觉分隔只落在三处：组首 2px 上边框、合并建筑单元格 2px 左色条、组间上边框；
+  **禁止**交替淡底 / 斑马纹。合并单元格会被游戏原生 `!important` 规则刷成灰底
+  `rgb(240,240,240)`，必须用 `background-color: transparent !important` 抵消；验收同时断言
+  「无正 alpha 底色 + 各组底色一致 + 与普通 td 底色一致」。色条只作装饰，文字仍走
+  `var(--rp-skin-ink, currentColor)`，`--rp-accent-rgb` 不作文字色（R02 / R30）。
+- 补给方案前四列固定为 `建筑 | 覆盖需求 | 选 | 物料`：两列合并单元格在前，复选框与物料列在后，
+  让被染色的列在视觉上连成一片。勾选 / 悬浮染色**只作用于从「选」列向右的 `<td>`**：
+  `tr:hover` 用 `rgba(var(--rp-accent-rgb), 0.08) !important`、`tr.rowSelected` 用
+  `rgba(var(--rp-accent-rgb), 0.1) !important`；**禁止**把背景挂在 `<tr>` 上——它会透过
+  合并单元格的 `transparent !important` 让整块合并区域变色（R30）。e2e 断言选中行非合并
+  单元格 alpha 全 0.1、未选中行 0、两列合并单元格前后均无淡底。
+- 「覆盖需求」与「选」列之间必须有 2px 竖向边界：表头 `.needsHeader` 与合并单元格
+  `.needsCellMerged[rowspan]` 都写 `border-right: 2px solid var(--rp-skin-border-strong, currentColor) !important`，
+  原样主题回退 `currentColor`，合并单元格继续 `background-color: transparent !important`（R30 / R02）。
+- 表头两块原生 `<select>` 字号统一 `11px`（R09 下限，游戏默认 13.33px 与面板控件不齐）；
+  自有基地星球占位文案固定 `选择自有基地星球`，不带星球数量。
+- 维生行角标「靠住房，补给无效」不再挂 `title` 浮窗；下方提示写作「维生」需求：宜居星球恒为
+  100%，非宜居星球由全星球住房容量决定（容量 ≥ 人口，达到100%）。基建补给无法改善这一项，
+  需由该星球入驻玩家自行新建 / 升级住房。文字仍走 `var(--rp-skin-ink, currentColor)`（R02）。
 - 单价列只读，不渲染输入框；「计算过程」文本走 `var(--rp-skin-ink, currentColor)`。
 - 「本期报告明细 + 六类需求」双栏用 `repeat(auto-fit, minmax(min(100%, 330px), 1fr))`，
   窄面板自动落回单栏，不能用 viewport 媒体查询；表格各自横向滚动，紧凑 padding 走
@@ -340,6 +389,15 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 - 命令参数 `XIT GOVH <planet>` 仍然预填；大小写不对时命中政府表会自动回正。
 - 留空且列表就绪时自动选中第一个政府并读取；切换政府先查会话缓存，未命中才重读 POPR / POPI / POPID。
 - 保留显式「自定义编码…」兜底（默认不显示输入框），输入的编码同样会过一次本地政府表回正。
+- 选择「自定义编码…」后优先显示「自有基地星球」下拉：选项只来自本地 `sitesStore` 中基地地址解析出的
+  naturalId，并用 `planetsStore.getByNaturalId()` 补显示名 / 回正大小写；游戏约束每个玩家每个星球只能有
+  1 座基地，故按 naturalId 去重即可，选项只显示 `星球名 (naturalId)`，**不显示基地数量**，
+  占位文案固定 `选择自有基地星球`（同样不带星球数量），下拉字号与政府下拉统一 `11px`（R09），
+  也不拉全量星球列表或产生任何外部请求。
+- 同区域保留 `TextInput` 手输兜底。`focus-on-mount` 负责第一次聚焦；真人鼠标点原生 `<select>`
+  时，游戏 Frame 的全局 click 会在 `nextTick` 单次 focus 后把焦点抢回不可编辑容器，因此再加
+  600ms 守护式聚焦（`focusout` + 40ms 轮询），焦点落到不可编辑区域时补回，用户主动切到其它
+  `input/textarea/select/button/a[href]/[contenteditable]` 则立即放手。提交后仍走本地政府表回正。
 
 ### 6.5 会话缓存与加载耗时
 
@@ -350,8 +408,8 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 - 价格不进缓存，始终取 `cxobStore` 实时订单簿；`subscribePrices` 按 `ticker.exchange` 去重，
   切回面板不再重复开同一批 hidden `CXOB`。「更新价格」`force=true` 清空去重表重试，
   并 **await** 订阅结束后把「正在…」提示回收为 `本地订单簿已更新：x / y 种物料有实时买一价`。
-- 实测（`prun-cdp/govh-verify-cache-timing.mjs`）：冷读 9.6~14.7s，缓存切回 **35ms**，
-  强制刷新 9.6s；缓存不牺牲可刷新性。
+- 实测（`prun-cdp/govh-verify-cache-timing.mjs`）：冷读 **9520~9805ms**，缓存切回 **12~34ms**，
+  强制刷新 **8212~9008ms**（多次实测区间，随现场窗口数浮动）；缓存不牺牲可刷新性。
 
 ---
 
@@ -375,15 +433,20 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 
 | 阶段 | 内容 | 状态 | 验收 |
 |---|---|---|---|
-| P0 数据层 | `govh-model.ts`：固化 §2/§3 全部表与公式（满足度、分层封顶、幸福度、求解）；基建存量扣除与计算过程；纯函数 + 单测脚本 | ✅ | `test-govh-model.mjs` 26/26，含封顶、幸福度、贪心求解、无人口/无基地边界、净待补量/成本/重量/体积、分建筑独立扣除，以及维生基线 / 已填满免费存量 / 效率量纲 / 70% 可达与 100% 维生短板 |
+| P0 数据层 | `govh-model.ts`：固化 §2/§3 全部表与公式（满足度、分层封顶、幸福度、求解）；基建存量扣除与计算过程；纯函数 + 单测脚本 | ✅ | `test-govh-model.mjs` 30/30，含封顶、幸福度、贪心求解、无人口/无基地边界、净待补量/成本/重量/体积、分建筑独立扣除，以及维生基线 / 已填满免费存量 / 效率量纲 / 100% 维生短板 |
 | P1 取数层 | `govh-dom.ts`：hidden `POPR` / `POPI` / 逐建筑 `POPID` 窗口读 DOM，抽五类人口 / 六类满足度 / 14 座建筑等级 / 「下一次消耗 + 储备」存量，以及 POPR 7 行报告明细 / 报告编号 / 需求原值 / 管理方项目；只关自己开的窗口 | ✅ | `govh-verify-dom.mjs` 13/13，VH-192b 读出人口 / 5 类已建基建 / SST 三物料 progress 存量，0 外部请求，玩家既有窗口未被关闭；`govh-diag-loading.mjs` 真实面板约 10 秒读完 POPR + POPI + 5 座 POPID，5 座设施存量全部计入 |
 | P2 面板骨架 | `GOVH.ts/vue` 注册 + 现状展示（幸福度/满足度/封顶，人口卡片不再重复「人口」字样）+ 本期 POPR 明细与六类需求左右双栏（无折线图、无自链接）+ 已建造等级 + 政府下拉 | ✅ | 命令能开；公司上下文不混入下拉；下拉选项来自本地「视图」菜单；e2e 断言明细 7 行、双栏 `sameRow`、无 `Population__graph` DOM、无 `XIT GOVH` 自链接 |
-| P3 求解与自选 | 目标档、缺口、全部物料表、只读统一单价、待补量 / 计算过程列、勾选实时重算、表格布局修正 | ✅ | 70%/100% 两档切换；20 行物料表勾选实时重算；数字列右对齐、`<td>` 不再 flex；单价无手填输入框 |
+| P3 求解与自选 | 目标档、缺口、全部物料表、只读统一单价、待补量 / 计算过程列、勾选实时重算、表格布局修正 | ✅ | 100% 目标 + 维生预期两档（current/full）切换；20 行物料表勾选实时重算；数字列右对齐、`<td>` 不再 flex；单价无手填输入框 |
 | P4 联动 | 清单→CBUY / 复制 JSON；底部删除两个购物车按钮；价格走 BPC 同口径本地订单簿 | ✅ | `XIT CBUY GOVH` 显示「比价来源」且数量已扣存量；复制 JSON 通过；零外部价格源请求 |
-| P5 打磨 | 主题校验、多宽度、切换政府自动重读、自定义兜底、CHANGELOG | ✅ | `govh-verify-e2e.mjs` **60/60**、`govh-verify-dom.mjs` **13/13**、`verify-govh-theme.mjs` **17/17**（429 个文字节点 0 低对比度 / 0 小字 / 0 opacity）、`test-govh-model.mjs` **26/26**；三主题新增「计算过程 / 只读单价 / 报告明细 / 双栏标题与项目行」后仍无低对比度 / 小字 / opacity 压淡 |
-| P6 加载优化 | 会话级快照缓存、价格订阅去重、「更新价格」提示回收、hidden buffer 等待压缩 | ✅ | `govh-verify-e2e.mjs` 断言首开冷读 / 切回命中缓存 / 「刷新数据」强制重读 / 更新价格提示回收；`govh-verify-cache-timing.mjs` 冷读 7.8~14.7s → 缓存切回 **9~35ms**，强制刷新 7.8s |
-| P7 推荐求解修正 | 维生用 POPR 现值作封顶基线；已填满 30 天的物料自动计入且不重复采购；性价比乘回实际等级并按当前短板需求排序；面板标注「贪心近似，非严格全局最优」 | ✅ | `test-govh-model.mjs` 26/26；`govh-verify-e2e.mjs` **60/60** 新增 70% 预览 86% 且无误报维生短板、100% 正确提示维生封顶且预览非 0；三主题 17/17 |
-| P8 重挂载首绘完整 | 人口卡片删除重复人口数量；快照恢复从 `onMounted` 前移到 `setup` 同步执行，`data-govh-restored=cache\|cold` 标记首绘来源，命中缓存时 `onMounted` 跳过 `refreshData` | ✅ | `govh-verify-remount.mjs` **8/8**（`force` 新建实例首帧 130ms 即 20 行完整 + `cache` 标记、无冷读、无「0→20 行」二次重建）；`govh-verify-cache-timing.mjs` 缓存切回 **9ms**；`govh-verify-e2e.mjs` **60/60** 断言人口卡片只 2 行含 %；三主题 **17/17**（429 节点） |
+| P5 打磨 | 主题校验、多宽度、切换政府自动重读、自定义兜底、CHANGELOG | ✅ | `govh-verify-e2e.mjs` **71/71**、`govh-verify-dom.mjs` **13/13**、`verify-govh-theme.mjs` **20/20**（三主题 n=273 个文字节点 0 低对比度 / 0 小字 / 0 opacity）、`test-govh-model.mjs` **26/26**；三主题新增「计算过程 / 只读单价 / 报告明细 / 双栏标题与项目行 / 建筑分组 / 自定义模式下拉」后仍无低对比度 / 小字 / opacity 压淡 |
+| P6 加载优化 | 会话级快照缓存、价格订阅去重、「更新价格」提示回收、hidden buffer 等待压缩 | ✅ | `govh-verify-e2e.mjs` 断言首开冷读 / 切回命中缓存 / 「刷新数据」强制重读 / 更新价格提示回收；`govh-verify-cache-timing.mjs` 冷读 9520ms → 缓存切回 **12ms**，强制刷新 8724ms |
+| P7 推荐求解修正 | 维生用 POPR 现值作封顶基线；已填满 30 天的物料自动计入且不重复采购；性价比乘回实际等级并按当前短板需求排序；面板标注「贪心近似，非严格全局最优」 | ✅ | `test-govh-model.mjs` 30/30；`govh-verify-e2e.mjs` **71/71** 100% 正确提示维生封顶且预览非 0；三主题 20/20 |
+| P8 重挂载首绘完整 | 人口卡片删除重复人口数量；快照恢复从 `onMounted` 前移到 `setup` 同步执行，`data-govh-restored=cache\|cold` 标记首绘来源，命中缓存时 `onMounted` 跳过 `refreshData` | ✅ | `govh-verify-remount.mjs` **8/8**（`force` 新建实例首帧 130ms 即 20 行完整 + `cache` 标记、无冷读、无「0→20 行」二次重建；docked 磁贴 frame + window 同时打标记，消除假失败）；`govh-verify-e2e.mjs` **71/71** 断言人口卡片只 2 行含 %；`govh-verify-cache-timing.mjs` 缓存切回 **12ms**；`verify-govh-theme.mjs` **20/20**（三主题 n=273，0 低对比度 / 0 小字 / 0 opacity） |
+| P9 分组可读性与输入聚焦 | `materialRows` 计算建筑组 `rowspan` / `groupIndex`；组间 2px 上边框、建筑列 2px 色条；所有 td 加 `data-govh-col`，e2e 改属性定位；自定义编码输入 `focus-on-mount` | ✅ | `govh-verify-e2e.mjs` **71/71**（5 个建筑组、建筑列 `rowspan` 3/3/5/4/5、组间粗线 / 色条、所有 td 带列属性、选完自定义编码可直接输入 `ZZ-777y`）；`verify-govh-theme.mjs` **20/20**（三主题 n=273，0 低对比度 / 0 小字 / 0 opacity，worstCR 6.11 / 5.63 / 6.18）；`govh-verify-dom.mjs` 13/13；`govh-verify-remount.mjs` 8/8；`test-govh-model.mjs` 26/26；`node status.mjs` 无残留测试窗口 |
+| P10 最终口径收尾 | 覆盖需求列与建筑列同组 `rowspan` 合并；去掉交替淡底，合并单元格用 `background-color: transparent !important` 抵消原生灰底；维生角标去掉 `title`，下方改「维生」需求定稿；自定义模式新增「自有基地星球」下拉（本地 `sitesStore` + `planetsStore`，一星球一基地、不显示数量、不拉全量星球），并补 600ms 守护式聚焦；同步主题规则 R30 / 台账 / 文档 | ✅ | `govh-verify-e2e.mjs` **71/71**（建筑列 + 覆盖需求列 rowspan、无正 alpha 底色、各组底色一致且与普通 td 一致、无浮窗 / 无住房型号、自有基地星球下拉与 `sitesStore` 一一对应、焦点回弹守护、零外部请求）；`verify-govh-theme.mjs` **20/20**（n=273，low=0 / small=0 / faded=0，worstCR 6.11 / 5.63 / 6.18）；`govh-verify-dom.mjs` 13/13；`govh-verify-remount.mjs` 8/8；`govh-verify-cache-timing.mjs` 冷读 9520ms / 缓存 12ms / 强制 8724ms；`test-govh-model.mjs` 26/26；现场 theme=light / compact=on / 0 残留窗口 / 0 测试标记 |
+| P11 表格列顺序 / 选中态 / 边界 / 下拉收尾 | 前四列改 `建筑 / 覆盖需求 / 选 / 物料`；hover / selected 背景从 `<tr>` 下沉到「选」及其后 `<td>`，合并单元格不再变色；「覆盖需求」表头与合并单元格补 2px 右边界；两个 `<select>` 统一 11px、占位去掉星球数量；e2e 补 6 项断言（共 77 项）并加入 APEX 断连归因 | ✅ | 列顺序 / 着色阶段 `govh-verify-e2e.mjs` **74/74**，边界阶段 **75/75**（同期 `verify-govh-theme.mjs` 20/20、`govh-verify-dom.mjs` 13/13、`govh-verify-remount.mjs` 8/8、`govh-verify-cache-timing.mjs` 冷读 9525ms / 缓存 32ms / 强制 8212ms 全绿）；11px / 占位 2 项断言单项 PASS；`vue-tsc` + 完整构建链 + `test-govh-model.mjs` 26/26 通过；服务器恢复后**现场复跑 77/77 全绿**（DOM 13/13、theme 20/20、remount 8/8、cache 冷读 9805ms / 缓存 34ms / 强制 9008ms、0 外部请求 / 0 页面异常 / 0 意外重载、status / residual 正常、现场 theme=light / compact=on 恢复） |
+| P12 维生预期两档与预览区收尾 | `govh-model.ts` 新增 `LifeSupportAssumption` 与 `lifeBaseline` / `effectiveTarget` 派生，统一 Phase1 / Phase2 / `allTargetsMet` / 预览 / `achievable`；`NeedState` 拆 `fulfillment` / `displayNow`；`GOVH.vue` 表头新增两档按钮（默认「预计补齐 100%」、肥沃星球禁用）、预览格「当前 XX%」小字、两档成本对照、条件式告警；删「封顶」列，说明区移出右栏改同栅格双列 + 整宽成本行，「XX% 封顶」用 `--rp-skin-danger` 文字色强调 | ✅ | `vue-tsc` + 完整构建链 + `test-govh-model.mjs` **32/32**；`govh-verify-e2e.mjs` **88/88**（零 FAIL 零 WARN，含两档切换 / 双口径 / 成本差额 0 等价 / 5 列表 / 说明区栅格 / 警示色 `rgb(156,59,59)` 且背景透明）；`verify-govh-theme.mjs` **20/20**（三主题 n=275，low=0 / small=0 / faded=0，worstCR 5.63 / 5.05 / 6.18）；`govh-verify-dom.mjs` 13/13；`govh-verify-remount.mjs` 8/8；`govh-verify-cache-timing.mjs` 冷读 12460ms / 缓存 82ms / 强制 12759ms；status / residual 正常，现场 theme=light / compact=on / 0 残留窗口 |
+| P13 顶部控件收敛 | 删除「目标满足度 70% / 100%」，目标固定 100%（`target` 已从求解器移除，硬编码 100%）；维生预期与刷新/更新收成一排，动作按钮包进 `.actions` 且 `margin-left:auto` 靠右；e2e 改 89 项（删 70%↔100% 切换用例，加目标档移除 / 单排控件 / 动作组靠右） | ✅ | `vue-tsc` + 完整构建链 + `test-govh-model.mjs` **30/30**；`govh-verify-e2e.mjs` **89/89** 零 FAIL 零 WARN；`verify-govh-theme.mjs` **20/20**（三主题 n=274）；`govh-verify-dom.mjs` 13/13；`govh-verify-remount.mjs` 8/8；`govh-verify-cache-timing.mjs` 缓存 16 / 40ms、强制 12184 / 19342ms（冷读标记本次未采到）；status / residual 正常 |
 
 ---
 
@@ -413,10 +476,28 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
    缓解：info 行始终显示「本地缓存（x 分钟前）」并提示点「刷新数据」；该按钮强制绕过并覆写缓存，
    真实重读本地窗口。价格不进缓存，始终实时取 `cxobStore`。
 9. **推荐是启发式，不是严格最优**：求解按当前短板需求贪心 + 冗余剔除，
-   目标是「用较低持续日成本达到 70% / 100% 的原始需求」，并已扣除设施内部「下一次消耗 + 储备」
+   目标是「用较低持续日成本达到 100% 的原始需求」，并已扣除设施内部「下一次消耗 + 储备」
    得到一次性待补量。它不保证**严格最低一次性采购价**；存在交叉需求 / 多建筑同物料时，
    理论上可能有更便宜的组合。面板文案已标注「非严格全局最优」，玩家可手动勾选调整；
    若要严格最优需把小规模（≤ 60 个选项）问题改成分支定界 / 整数规划离线求解。
+10. **建筑列 / 覆盖需求列 `rowspan` 的视觉与验收口径**：合并后非组首行同时没有「建筑」和「覆盖需求」两个 `<td>`，
+    DOM 断言 / 截图定位一律按 `data-govh-col`，**禁止**按 `row.children[表头索引]` 取列（R30）。
+    整行交替底色会被游戏原生 td 的不透明背景压掉，并与 hover / 选中态冲突；最终口径是**完全不加底色**，
+    只用组首 2px 上边框 + 建筑列 2px 装饰色条区分。游戏原生还会给 `rowspan` 单元格刷 `rgb(240,240,240)` 的
+    `!important` 灰底，因此 `.nameCell[rowspan]` / `.needsCellMerged[rowspan]` 必须写
+    `background-color: transparent !important`；e2e 同时断言无正 alpha 底色、各组底色一致、与普通 td 底色一致。
+    另：前四列固定 `建筑 / 覆盖需求 / 选 / 物料`，染色只落「选」及其后的 `<td>`，**禁止** `<tr>` 级背景；
+    「覆盖需求」与「选」列之间 2px 右边界同走 `--rp-skin-border-strong, currentColor`（R30 / R02）。
+11. **服务器维护会让 e2e 中途整体失效**：APEX 断连时游戏 SPA 自行 reload，GOVH 面板、所有窗口与
+    `window.__govhFrame` 一起清空，后续依赖面板的断言会连锁失败（曾出现 58 pass / 19 fail，
+    前 58 项含冷读 / 政府切换 / 缓存命中 / 下拉字号 / 占位全部 PASS）。只读探测可确认：页面正文
+    「无法连接到APEX网络」、`navType=reload`、窗口数归零。这**不是**插件或脚本回归；
+    `govh-verify-e2e.mjs` 已记录主框架导航次数与 `apexOffline`，命中时输出 WARN 并写进结果 JSON。
+    **必须**在服务器恢复后重跑全套真机验收，不要用断连期间的结果判断功能。本次已在恢复后复跑 77/77 全绿，确认无功能回归。
+12. **维生预期是假设，不是事实**：`预计补齐 100%` 假定一个人口报告周期内住房会补齐；
+    若非宜居星球住房容量长期不足（人口增长快于住房建设）、政府换届或人口结构变化，提前备货会错配。
+    缓解：一次性填满的是 30 天储备，物料按日耗持续消耗、不会白买；缓存 TTL 5 分钟可随时刷新取到新维生值；
+    面板同时给出两档成本差额与「游戏当前实际显示值」，**禁止**把预测值标成游戏现值。
 
 ---
 

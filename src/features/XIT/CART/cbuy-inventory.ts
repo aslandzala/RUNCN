@@ -74,21 +74,55 @@ export interface CbuyDeduction {
   transfer: number;
   /** 最终需要下单采购的数量 */
   net: number;
+  /** 实际抵扣 / 出库的交易所代码：单市场模式统一为选定市场；分市场模式为各物料的
+   *  最优价市场，无报价时退为有库存的交易所。ACT 生成时按此路由买 / 转，保证
+   *  「在哪扣就在哪买 / 转」，避免数量错配（PR #60 审查 #220 / #223）。 */
+  exchangeCode?: string;
+}
+
+// 解析某物料的实际出库交易所：优先用调用方指定的（单市场统一市场 / 分市场最优价）；
+// 未指定（分市场且无报价）时，退而选一个仓库里真有该物料的交易所，保证纯转移行
+// 能路由到供货仓库（PR #60 审查 #223）。
+function resolveExchangeCode(
+  ticker: string,
+  preferred: string | undefined,
+  byCode: Record<string, CbuyInventory>,
+): string | undefined {
+  if (preferred) {
+    return preferred;
+  }
+  let best: string | undefined;
+  let bestAmount = 0;
+  for (const [code, inv] of Object.entries(byCode)) {
+    const amount = Math.max(0, inv[ticker] ?? 0);
+    if (amount > bestAmount) {
+      bestAmount = amount;
+      best = code;
+    }
+  }
+  return best;
 }
 
 // 抵扣顺序：先扣被维修基地仓库（原本就在基地、不需要买也不需要运），
-// 再扣交易所仓库（不用买，但要随采购品一起运到基地）。
+// 再扣「实际出库交易所」的仓库（不用买，但要随采购品一起运到基地）。
 // 因此 transfer = gross - base，net = transfer - exchange，且 net + exchange = transfer。
+// 第二参数由 `exchangeInventoryByCode` 改为「交易所代码 -> 库存」的映射，配合
+// `outboundExchange` 让每种物料按其实际出库市场抵扣，而不是统一扣一个市场
+// （PR #60 审查 #220）。
 export function deductNeeds(
   needs: ReadonlyArray<CbuyNeed>,
   baseInventory: CbuyInventory,
-  exchangeInventory: CbuyInventory,
+  exchangeInventoryByCode: Record<string, CbuyInventory>,
+  outboundExchange?: (ticker: string) => string | undefined,
 ): CbuyDeduction[] {
   return needs.map(need => {
     const gross = Number.isFinite(need.amount) ? Math.max(0, Math.ceil(need.amount)) : 0;
     const base = Math.min(gross, Math.max(0, baseInventory[need.ticker] ?? 0));
     const transfer = Math.max(0, gross - base);
-    const exchange = Math.min(transfer, Math.max(0, exchangeInventory[need.ticker] ?? 0));
+    const preferred = outboundExchange ? outboundExchange(need.ticker) : undefined;
+    const code = resolveExchangeCode(need.ticker, preferred, exchangeInventoryByCode);
+    const exchangeInv = code ? (exchangeInventoryByCode[code] ?? {}) : {};
+    const exchange = Math.min(transfer, Math.max(0, exchangeInv[need.ticker] ?? 0));
     return {
       ticker: need.ticker,
       name: need.name,
@@ -97,6 +131,7 @@ export function deductNeeds(
       exchange,
       transfer,
       net: Math.max(0, transfer - exchange),
+      exchangeCode: code,
     };
   });
 }

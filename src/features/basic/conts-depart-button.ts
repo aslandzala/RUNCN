@@ -259,7 +259,15 @@ function onTileReady(tile: PrunTile) {
   observer.observe(tile.anchor, { childList: true, subtree: true, characterData: true });
   // 条款进度变化未必反映到列表可见文本上（例如刚装完货，状态列还是「部分完成」），
   // 所以再盯一层合同 store；磁贴关掉时随之解绑。
-  const stop = watch(contractsStore.all, () => syncTile(tile), { flush: 'post' });
+  // 装货完成等变化体现在 storage / ship store，而非合同 store：取货合同先于
+  // STORAGE_CHANGE 到达时「ready:false」的目标会被缓存，装货完成后按钮仍灰着。
+  // 盯住 storage 与 ship 依赖，装完货即时重算「ready」，按钮随之点亮
+  // （PR #60 审查 #224）。
+  const stop = watch(
+    [contractsStore.all, storagesStore.all, shipsStore.all],
+    () => syncTile(tile),
+    { flush: 'post' },
+  );
   onNodeDisconnected(tile.anchor, stop);
   syncTile(tile);
 }

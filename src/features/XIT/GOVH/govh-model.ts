@@ -14,8 +14,11 @@
 // 核心机制（与 oog 官方一致）：
 //   - 每种物料独立提供其建筑需求贡献的 1/n（n=该建筑物料数）；
 //   - fulfillment = provided / needed；满足度按 4 层封顶；
-//   - 求解 = 维生按 POPR 现值固定封顶基线 + 已填满 30 天的设施存量自动计入，
-//     再逐需求按「当前短板需求的每 credit 贡献」贪心选待采购物料，最后剔除冗余避免超买。
+//   - 维生由住房 / 星球肥沃度决定，政府补给改变不了它；求解时按
+//     lifeSupportAssumption 选封顶基线（当前 POPR 现值 / 住房补齐后 100%），
+//     同一基线同时用于 Phase1 缺口、Phase2 达标判据与预览，避免口径分裂；
+//   - 已填满 30 天的设施存量自动计入，再逐需求按「当前短板需求的每 credit
+//     贡献」贪心选待采购物料，最后剔除冗余避免超买。
 //     这是启发式近似，不是严格全局最优（见文档「求解流程」）。
 
 // ── 六类需求 & 分层 ────────────────────────────────────────────────────
@@ -32,6 +35,13 @@ export type Need = (typeof NEEDS)[number];
 // 参与基建求解的需求（维生不参与：肥沃恒 100%，非肥沃靠住房）。
 export const INFRA_NEEDS = ['SAFETY', 'HEALTH', 'COMFORT', 'CULTURE', 'EDUCATION'] as const;
 export type InfraNeed = (typeof INFRA_NEEDS)[number];
+
+// 维生预期：政府管理者改不了维生，只能选择按哪个假设安排基建备货。
+//   current = 按 POPR 当前维生满足度封顶，有效目标压到 min(1, 维生现值)；
+//   full    = 假定一个人口报告周期内住房补齐到 100%，按 100% 全额备货。
+// 纯函数缺省 current 保持向后兼容；运行时默认值由 GOVH.vue 的 useTileState 决定。
+// 目标满足度恒为 100%（「省钱档 / 70%」旋钮已从模型与界面移除，求解器不再接受任意 target）。
+export type LifeSupportAssumption = 'current' | 'full';
 
 export const NEED_LABELS: Record<Need, string> = {
   LIFE_SUPPORT: '维生',
@@ -257,8 +267,8 @@ export interface GovhInput {
   // 政府基建设施内部「下一次消耗 + 储备」当前存量（来自 POPID 维护供给表）。
   // 只扣减一次性待补量，不影响日耗 / 需求贡献；缺省视为 0。
   facilityStocks?: FacilityStocks;
-  // 目标满足度 0~1（0.7 / 1.0）。
-  target: number;
+  // 维生预期。缺省 current；一句话说明见 LifeSupportAssumption。
+  lifeSupportAssumption?: LifeSupportAssumption;
   // 物料单价（从 cxobStore 实时盘口读），无报价为 undefined。
   prices: Record<string, number | undefined>;
   // 用户显式勾选的 (building, material) 键集合 `TICKER.MATERIAL`。
@@ -276,9 +286,12 @@ export interface NeedState {
   provided: number;
   // 现状满足度（POPR 原值，含封顶）。
   current: number;
-  // 施加选中物料后的满足度（含封顶）。
+  // 按所选维生假设施加选中物料后的满足度（含封顶）。
   fulfillment: number;
-  // 是否被下一层短板封顶。
+  // 按 POPR 当前维生现值封顶、游戏此刻实际会显示的补足后满足度。
+  // 与 fulfillment 分开，避免把「住房补齐后」的预测值当成事实。
+  displayNow: number;
+  // 是否在所选假设下被下一层短板封顶。
   capped: boolean;
 }
 
@@ -332,8 +345,13 @@ export interface GovhResult {
     volume: number;
     missingPrices: number;
     achievable: boolean;
-    // 封顶短板需求（目标不可达时）。
+    // 封顶短板需求（原始目标不可达时）。
     limitingNeed?: Need;
+    // 维生预期派生值：UI 标注假设口径 / 告警文案 / 成本对照都读这里。
+    assumption: LifeSupportAssumption;
+    currentLifeSupport: number;
+    lifeBaseline: number;
+    effectiveTarget: number;
   };
 }
 
@@ -467,8 +485,9 @@ function buildOptions(input: GovhInput): SupplyOption[] {
 // 计算某组「待采购」选项下，各需求的最终提供量。
 // 基准：
 //   - 基地给 safety / health 各 50×siteCount；
-//   - 维生由住房 / 星球肥沃度决定，GOVH 的基建物料改变不了它，
-//     必须用 POPR 当前原值作为固定基线，否则 4 层封顶会把全部需求误压成 0%；
+//   - 维生由住房 / 星球肥沃度决定，基建物料改变不了它，因此用所选
+//     lifeBaseline（当前 POPR 现值或住房补齐后的 100%）作影子提供量；
+//     取 0 会让 4 层封顶把全部需求误压成 0%；
 //   - 已经填满 30 天（netFillAmount = 0）的物料不需要再买，但设施里已有，
 //     始终计入提供量，不受勾选状态影响。
 function computeProvided(
@@ -476,12 +495,13 @@ function computeProvided(
   options: SupplyOption[],
   active: Set<string>,
   needed: Record<Need, number>,
+  lifeBaseline: number,
 ): Record<Need, number> {
   const provided = Object.fromEntries(NEEDS.map(need => [need, 0])) as Record<Need, number>;
   const base = 50 * input.siteCount;
   provided.SAFETY = base;
   provided.HEALTH = base;
-  provided.LIFE_SUPPORT = needed.LIFE_SUPPORT * clamp01(input.currentFulfillment.LIFE_SUPPORT ?? 0);
+  provided.LIFE_SUPPORT = needed.LIFE_SUPPORT * lifeBaseline;
   for (const option of options) {
     // 已填满的存量是免费基线；未填满时必须显式采购才计入。
     if (!active.has(option.key) && option.netFillAmount > 0) {
@@ -494,25 +514,34 @@ function computeProvided(
   return provided;
 }
 
-// 由提供量算封顶后满足度。
-function fulfillmentsFromProvided(
+// 由提供量算封顶后满足度。维生不是物料提供的，直接覆写为所选假设基线；
+// 无人口星球全项视为 1，避免被维生现值误压成「目标不可达」。
+function cappingFromProvided(
   needed: Record<Need, number>,
   provided: Record<Need, number>,
-): Record<Need, number> {
+  lifeBaseline: number,
+): { fulfillment: Record<Need, number>; capped: Record<Need, boolean> } {
   const raw = {} as Record<Need, number>;
   for (const need of NEEDS) {
     raw[need] = needed[need] > 0 ? clamp01(provided[need] / needed[need]) : 1;
   }
-  return applyCapping(raw).fulfillment;
+  raw.LIFE_SUPPORT = needed.LIFE_SUPPORT > 0 ? lifeBaseline : 1;
+  return applyCapping(raw);
 }
 
+// 达标判据必须与 Phase1 用同一个 effectiveTarget / lifeBaseline，
+// 否则维生低于目标时封顶后恒 false，Phase2 会把每个待剔除物料立刻加回，
+// 冗余剔除完全失效（历史 bug）。
 function allTargetsMet(
   needed: Record<Need, number>,
   provided: Record<Need, number>,
-  target: number,
+  effectiveTarget: number,
+  lifeBaseline: number,
 ): boolean {
-  const f = fulfillmentsFromProvided(needed, provided);
-  return INFRA_NEEDS.every(need => f[need] >= target - 1e-9);
+  const { fulfillment } = cappingFromProvided(needed, provided, lifeBaseline);
+  return INFRA_NEEDS.every(
+    need => needed[need] <= 0 || fulfillment[need] >= effectiveTarget - 1e-9,
+  );
 }
 
 // 当前需求维度上的「每 credit 贡献」。Phase1 必须按当前短板需求排序，
@@ -537,7 +566,14 @@ function compareByEfficiency(a: number, b: number, direction: 'asc' | 'desc'): n
 
 // ── 主求解 ──────────────────────────────────────────────────────────────
 export function solve(input: GovhInput): GovhResult {
-  const target = clamp01(input.target);
+  // 目标满足度恒为 100%：面板定位「一个报告周期备足」、默认假定住房补齐到 100%，
+  // 求解器不再接受任意 target，「省钱档 / 70%」旋钮已从设计与模型中移除。
+  const target = 1;
+  const assumption = input.lifeSupportAssumption ?? 'current';
+  const currentLifeSupport = clamp01(input.currentFulfillment.LIFE_SUPPORT ?? 0);
+  // 封顶基线与采购目标必须成对派生，Phase1 / Phase2 / 预览全部使用同一组。
+  const lifeBaseline = assumption === 'full' ? 1 : currentLifeSupport;
+  const effectiveTarget = assumption === 'full' ? target : Math.min(target, lifeBaseline);
   const needed = computeNeeded(input.population);
   const options = buildOptions(input);
   const optionByKey = new Map(options.map(o => [o.key, o]));
@@ -556,8 +592,8 @@ export function solve(input: GovhInput): GovhResult {
     for (const need of INFRA_NEEDS) {
       // 每轮按当前已选集合重算缺口：天然包含基地、维生基线、免费存量，
       // 以及之前需求选中的交叉贡献，避免重复采购。
-      const providedNow = computeProvided(input, options, selected, needed);
-      let remaining = needed[need] * target - providedNow[need];
+      const providedNow = computeProvided(input, options, selected, needed, lifeBaseline);
+      let remaining = needed[need] * effectiveTarget - providedNow[need];
       if (remaining <= 0) {
         continue;
       }
@@ -585,19 +621,18 @@ export function solve(input: GovhInput): GovhResult {
     );
     for (const key of removeOrder) {
       selected.delete(key);
-      if (!allTargetsMet(needed, computeProvided(input, options, selected, needed), target)) {
+      const candidate = computeProvided(input, options, selected, needed, lifeBaseline);
+      if (!allTargetsMet(needed, candidate, effectiveTarget, lifeBaseline)) {
         selected.add(key);
       }
     }
   }
 
   // ── 预览结果 ──────────────────────────────────────────────────────────
-  const provided = computeProvided(input, options, selected, needed);
-  const rawFulfillment = {} as Record<Need, number>;
-  for (const need of NEEDS) {
-    rawFulfillment[need] = needed[need] > 0 ? provided[need] / needed[need] : 1;
-  }
-  const { fulfillment, capped } = applyCapping(rawFulfillment);
+  // fulfillment = 按所选维生假设的预测值；displayNow = 游戏此刻实际显示值。
+  const provided = computeProvided(input, options, selected, needed, lifeBaseline);
+  const { fulfillment, capped } = cappingFromProvided(needed, provided, lifeBaseline);
+  const displayNow = cappingFromProvided(needed, provided, currentLifeSupport).fulfillment;
   const happiness = computeHappiness(fulfillment);
 
   const needs = {} as Record<Need, NeedState>;
@@ -607,6 +642,7 @@ export function solve(input: GovhInput): GovhResult {
       provided: provided[need],
       current: clamp01(input.currentFulfillment[need] ?? 0),
       fulfillment: clamp01(fulfillment[need]),
+      displayNow: clamp01(displayNow[need]),
       capped: capped[need],
     };
   }
@@ -637,7 +673,10 @@ export function solve(input: GovhInput): GovhResult {
     }
   }
 
-  const achievable = allTargetsMet(needed, provided, target);
+  const achievable = allTargetsMet(needed, provided, effectiveTarget, lifeBaseline);
+  // limitingNeed 仍按 100% 原目标诊断「哪一层让 100% 目标不可达」；
+  // achievable 已按 effectiveTarget 判定，故 current 模式下两者可以并存
+  // （已按 min 目标备足货，但原目标受维生限制），由 UI 分别显示提示与告警。
   let limitingNeed: Need | undefined;
   for (let tier = 1; tier < TIERS.length; tier++) {
     const lower = TIERS[tier - 1];
@@ -664,6 +703,10 @@ export function solve(input: GovhInput): GovhResult {
       missingPrices,
       achievable,
       limitingNeed,
+      assumption,
+      currentLifeSupport,
+      lifeBaseline,
+      effectiveTarget,
     },
   };
 }

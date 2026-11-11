@@ -143,7 +143,6 @@ const baseInput = () => ({
     SCIENTIST: 0.625,
   },
   levels: { SST: 2, INF: 1, PAR: 1, ART: 1, LIB: 1 },
-  target: 0.7,
   prices: Object.fromEntries(
     [...new Set(UPKEEP_BUILDINGS.flatMap(b => Object.keys(b.upkeep)))].map(t => [t, 100]),
   ),
@@ -171,42 +170,116 @@ check('solve：VH-192b 类样例能给出推荐集合且成本低估合理', () 
     assert.ok(Number.isFinite(r.needs[need].provided), `needs.${need}.provided 非有限数`);
     assert.ok(r.needs[need].provided >= 0, `needs.${need}.provided 为负`);
   }
-  // 维生基线来自 POPR（此样例为 100%），70% 目标必须可达。
-  assert.equal(r.summary.achievable, true, `70% 不可达：${r.summary.limitingNeed}`);
+  // 维生基线来自 POPR（此样例为 100%），100% 目标必须可达。
+  assert.equal(r.summary.achievable, true, `100% 不可达：${r.summary.limitingNeed}`);
   console.log(
     `   推荐 ${r.selected.size}/${r.options.length} 项，日成本 ${r.summary.dailyCost.toFixed(0)}，填充 ${r.summary.fillCost.toFixed(0)}`,
   );
 });
 
-check('solve：维生用 POPR 现值作封顶基线，70% 可达且预览不为 0', () => {
-  const input = baseInput();
-  const r = solve({
-    ...input,
-    target: 0.7,
-    currentFulfillment: { ...input.currentFulfillment, LIFE_SUPPORT: 0.86 },
-  });
-  assert.ok(Math.abs(r.needs.LIFE_SUPPORT.fulfillment - 0.86) < 1e-9, `维生=${r.needs.LIFE_SUPPORT.fulfillment}`);
-  assert.equal(r.needs.LIFE_SUPPORT.capped, false);
-  assert.equal(r.summary.achievable, true, `limiting=${r.summary.limitingNeed}`);
-  assert.equal(r.summary.limitingNeed, undefined);
-  for (const need of INFRA_NEEDS) {
-    assert.ok(
-      r.needs[need].fulfillment >= 0.7 - 1e-9,
-      `${need}=${r.needs[need].fulfillment}`,
-    );
-  }
-});
-
-check('solve：维生 86% 时 100% 目标正确判为不可达，短板是维生', () => {
+check('solve：current 模式维生 86% 时 100% 原目标受限，有效目标压到 86%', () => {
   const input = baseInput();
   const r = solve({
     ...input,
     target: 1,
     currentFulfillment: { ...input.currentFulfillment, LIFE_SUPPORT: 0.86 },
+    lifeSupportAssumption: 'current',
   });
-  assert.equal(r.summary.achievable, false);
+  assert.ok(Math.abs(r.summary.effectiveTarget - 0.86) < 1e-9);
+  assert.ok(Math.abs(r.summary.lifeBaseline - 0.86) < 1e-9);
+  // 原 100% 目标受限，UI 用它显示「短板」提示；achievable 按有效目标判定，两者可并存。
   assert.equal(r.summary.limitingNeed, 'LIFE_SUPPORT');
-  assert.ok(Math.abs(r.needs.SAFETY.fulfillment - 0.86) < 1e-9, `安全=${r.needs.SAFETY.fulfillment}`);
+  assert.ok(r.needs.SAFETY.fulfillment <= 0.86 + 1e-9, `安全=${r.needs.SAFETY.fulfillment}`);
+  // 后五类需求都按有效目标（86%）备足：原 70% 测试覆盖的「全部需求达有效目标」语义。
+  for (const need of INFRA_NEEDS) {
+    assert.ok(
+      r.needs[need].fulfillment >= r.summary.effectiveTarget - 1e-9,
+      `${need}=${r.needs[need].fulfillment} < ${r.summary.effectiveTarget}`,
+    );
+  }
+});
+
+check('solve：未传 lifeSupportAssumption 时缺省 current（向后兼容）', () => {
+  const r = solve(baseInput());
+  assert.equal(r.summary.assumption, 'current');
+  assert.ok(Math.abs(r.summary.lifeBaseline - 1) < 1e-9);
+});
+
+check('solve：current 模式维生低于目标时有效目标被压低且仍可达', () => {
+  const input = baseInput();
+  const r = solve({
+    ...input,
+    target: 1,
+    currentFulfillment: { ...input.currentFulfillment, LIFE_SUPPORT: 0.62 },
+    lifeSupportAssumption: 'current',
+  });
+  assert.ok(Math.abs(r.summary.currentLifeSupport - 0.62) < 1e-9);
+  assert.ok(Math.abs(r.summary.effectiveTarget - 0.62) < 1e-9);
+  assert.equal(r.summary.achievable, true, `limiting=${r.summary.limitingNeed}`);
+  assert.equal(r.summary.limitingNeed, 'LIFE_SUPPORT');
+  // current 模式下预测值 = 游戏当前实际显示值（同一封顶基线）。
+  for (const need of NEEDS) {
+    assert.ok(
+      Math.abs(r.needs[need].fulfillment - r.needs[need].displayNow) < 1e-9,
+      `${need} 预测/实际不一致`,
+    );
+  }
+});
+
+check('solve：full 模式不打折采购目标，维生基线 1.0，预测与实际显示分离', () => {
+  const input = baseInput();
+  const r = solve({
+    ...input,
+    target: 1,
+    currentFulfillment: { ...input.currentFulfillment, LIFE_SUPPORT: 0.62 },
+    lifeSupportAssumption: 'full',
+  });
+  assert.equal(r.summary.assumption, 'full');
+  assert.ok(Math.abs(r.summary.lifeBaseline - 1) < 1e-9);
+  assert.ok(Math.abs(r.summary.effectiveTarget - 1) < 1e-9);
+  assert.ok(Math.abs(r.needs.LIFE_SUPPORT.fulfillment - 1) < 1e-9);
+  assert.ok(r.needs.LIFE_SUPPORT.displayNow <= 0.62 + 1e-9);
+  assert.ok(r.needs.SAFETY.fulfillment > r.needs.SAFETY.displayNow);
+});
+
+check('solve：提前备货的推荐成本与物料数不低于按当前维生', () => {
+  const input = {
+    ...baseInput(),
+    currentFulfillment: { ...baseInput().currentFulfillment, LIFE_SUPPORT: 0.62 },
+  };
+  const current = solve({ ...input, target: 1, lifeSupportAssumption: 'current' });
+  const full = solve({ ...input, target: 1, lifeSupportAssumption: 'full' });
+  assert.ok(full.summary.fillCost >= current.summary.fillCost);
+  assert.ok(full.selected.size >= current.selected.size);
+  assert.equal(current.summary.achievable, true);
+});
+
+check('solve：维生 100% 时两档等价（推荐集合、成本、预览一致）', () => {
+  const input = baseInput();
+  const current = solve({ ...input, lifeSupportAssumption: 'current' });
+  const full = solve({ ...input, lifeSupportAssumption: 'full' });
+  assert.deepEqual([...current.selected].sort(), [...full.selected].sort());
+  assert.equal(current.summary.fillCost, full.summary.fillCost);
+  for (const need of NEEDS) {
+    assert.ok(Math.abs(current.needs[need].fulfillment - full.needs[need].fulfillment) < 1e-9);
+  }
+});
+
+check('solve：维生低于目标时 Phase2 冗余剔除仍生效（历史 bug 回归）', () => {
+  const input = baseInput();
+  const low = solve({
+    ...input,
+    target: 1,
+    currentFulfillment: { ...input.currentFulfillment, LIFE_SUPPORT: 0.5 },
+    lifeSupportAssumption: 'current',
+  });
+  const normal = solve({ ...input, target: 1, lifeSupportAssumption: 'current' });
+  assert.equal(low.summary.achievable, true, '达标判据又被封顶恒 false 压死');
+  assert.ok(
+    low.selected.size <= normal.selected.size,
+    `low=${low.selected.size} normal=${normal.selected.size}`,
+  );
+  assert.ok(low.selected.size < low.options.length, '冗余未剔除：选满全部物料');
 });
 
 check('solve：已填满的设施存量自动计入提供量，但不进入待采购清单', () => {
@@ -276,16 +349,6 @@ check('solve：无报价物料 efficiency=-1 但仍出现在全部选项', () =>
   assert.ok(r.options.length > 0);
   assert.ok(r.options.every(o => o.efficiency === -1));
   assert.equal(r.summary.missingPrices, r.selected.size);
-});
-
-check('solve：目标 100% 比 70% 推荐更多物料或相同', () => {
-  const low = solve({ ...baseInput(), target: 0.7 });
-  const high = solve({ ...baseInput(), target: 1.0 });
-  assert.ok(
-    high.selected.size >= low.selected.size,
-    `100%选中 ${high.selected.size} < 70%选中 ${low.selected.size}`,
-  );
-  console.log(`   70% → ${low.selected.size} 项；100% → ${high.selected.size} 项`);
 });
 
 check('INFRA_NEEDS 不含 LIFE_SUPPORT', () => {

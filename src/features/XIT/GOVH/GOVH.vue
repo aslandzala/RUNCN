@@ -17,6 +17,7 @@ import { useTileState } from '@src/store/user-data-tiles';
 import { showBuffer } from '@src/infrastructure/prun-ui/buffers';
 import { getEntityNaturalIdFromAddress } from '@src/infrastructure/prun-api/data/addresses';
 import { sitesStore } from '@src/infrastructure/prun-api/data/sites';
+import { planetsStore } from '@src/infrastructure/prun-api/data/planets';
 import { materialsStore } from '@src/infrastructure/prun-api/data/materials';
 import { getMaterialName } from '@src/infrastructure/prun-ui/i18n';
 import { fixed0, fixed2, percent1 } from '@src/utils/format';
@@ -25,11 +26,28 @@ import { readCachedSnapshot, writeCachedSnapshot } from './govh-cache';
 import { useManagedGovernments } from './govh-governments';
 import { setGovhQuote } from './govh-quote';
 import { readPrices, subscribePrices, GOVH_EXCHANGES } from './govh-prices';
-import { solve, LEVELS, LEVEL_LABELS, NEEDS, NEED_LABELS, UPKEEP_BUILDINGS } from './govh-model';
+import {
+  solve,
+  LEVELS,
+  LEVEL_LABELS,
+  NEEDS,
+  INFRA_NEEDS,
+  NEED_LABELS,
+  UPKEEP_BUILDINGS,
+  type Need,
+  type InfraNeed,
+  type LifeSupportAssumption,
+  type SupplyOption,
+} from './govh-model';
 
 const parameters = useXitParameters();
 const planetInput = useTileState('govh-planet', '');
-const target = useTileState<0.7 | 1>('govh-target', 0.7);
+// 目标满足度固定 100%：面板定位「一个报告周期备足」，默认又假定住房补齐到 100%。
+// 模型层不再保留可调 target（求解器恒按 100% 目标 + 维生假设计算），减少二次采购的
+// 「省钱档」旋钮已从设计与求解器中移除，不存在「改 UI 即可恢复」的隐藏分支。
+// 维生预期：政府改不了住房，但可以选择按当前维生封顶备货，还是假定一个人口
+// 报告周期内住房补齐到 100% 提前备足 30 天。默认 full（缺口通常只是暂时的）。
+const lifeAssumption = useTileState<LifeSupportAssumption>('govh-life-assumption', 'full');
 // 命令参数 `XIT GOVH VH-192b` 预填星球（保留玩家输入的大小写）。
 if (parameters[0] && parameters[0].trim() !== '') {
   planetInput.value = parameters[0].trim();
@@ -163,6 +181,97 @@ watch(customPlanet, value => {
   }
 });
 
+// 自定义星球输入框的「守护式聚焦」：真人用鼠标点原生 <select> 的「自定义编码…」选项时，
+// 原生下拉关闭 + 游戏 Frame 的全局 click 处理会在 TextInput 的 nextTick 单次 focus 之后
+// 把焦点抢回根 <div tabindex="-1">，于是输入框已渲染却打不进字。CDP 的 selectOption /
+// 键盘选择不走这条鼠标路径，旧的单次 focus 因此只在真机失败。这里在 customMode 打开的
+// 短窗口（600ms）内检测到焦点落到不可编辑区域就补一次 focus；用户主动点到其它
+// 输入框 / 按钮 / 下拉则立即放手，不抢焦点。
+const rootEl = useTemplateRef<HTMLElement>('rootEl');
+const CUSTOM_FOCUS_GUARD_MS = 600;
+let focusGuardUntil = 0;
+let focusGuardTimer: ReturnType<typeof setInterval> | undefined;
+let focusOutCleanup: (() => void) | undefined;
+
+function customPlanetInput(): HTMLInputElement | undefined {
+  return (
+    rootEl.value?.querySelector<HTMLInputElement>('[data-govh-custom-planet] input') ?? undefined
+  );
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    target.matches('input, textarea, select, button, a[href], [contenteditable="true"]')
+  );
+}
+
+function stopCustomFocusGuard(): void {
+  if (focusGuardTimer !== undefined) {
+    clearInterval(focusGuardTimer);
+    focusGuardTimer = undefined;
+  }
+  focusOutCleanup?.();
+  focusOutCleanup = undefined;
+}
+
+function startCustomFocusGuard(): void {
+  stopCustomFocusGuard();
+  focusGuardUntil = Date.now() + CUSTOM_FOCUS_GUARD_MS;
+  const guardActive = (): boolean => customMode.value && Date.now() <= focusGuardUntil;
+
+  const input = customPlanetInput();
+  if (input) {
+    // 焦点一旦被游戏 Frame 根 div 这类不可编辑区域抢走，下一宏任务补回（让原生 click 链走完）。
+    // 用户主动切到其它可交互控件则放手，不抢焦点。
+    const onFocusOut = (event: FocusEvent): void => {
+      if (!guardActive()) {
+        stopCustomFocusGuard();
+        return;
+      }
+      if (isInteractiveTarget(event.relatedTarget)) {
+        stopCustomFocusGuard();
+        return;
+      }
+      setTimeout(() => {
+        if (guardActive()) {
+          customPlanetInput()?.focus();
+        }
+      }, 0);
+    };
+    input.addEventListener('focusout', onFocusOut);
+    focusOutCleanup = () => input.removeEventListener('focusout', onFocusOut);
+  }
+
+  // 轮询兜底：应对 focusout 先于监听挂载、或焦点被静默移动的情况。
+  let elapsed = 0;
+  const step = 40;
+  focusGuardTimer = setInterval(() => {
+    elapsed += step;
+    if (!guardActive() || elapsed > CUSTOM_FOCUS_GUARD_MS) {
+      stopCustomFocusGuard();
+      return;
+    }
+    const target = customPlanetInput();
+    if (!target || document.activeElement === target) {
+      return;
+    }
+    if (isInteractiveTarget(document.activeElement)) {
+      stopCustomFocusGuard();
+      return;
+    }
+    target.focus();
+  }, step);
+}
+
+watch(customMode, value => {
+  if (value) {
+    void nextTick(() => startCustomFocusGuard());
+  } else {
+    stopCustomFocusGuard();
+  }
+});
+
 function applyCustomPlanet() {
   if (!customMode.value) {
     return;
@@ -184,6 +293,52 @@ const siteCount = computed(() => {
   return (sitesStore.all.value ?? []).filter(
     site => (getEntityNaturalIdFromAddress(site.address) ?? '').toUpperCase() === planet,
   ).length;
+});
+
+// 自定义模式的主入口：只列「自有基地星球」，不拉全量星球列表、不硬编码账号数据。
+// 游戏约束每个玩家在每个星球只能有 1 座基地，所以按 naturalId 去重即可，不显示基地数量。
+// 基地来自本地 sitesStore；星球显示名 / 大小写回正来自本地 planetsStore。
+interface BasePlanetOption {
+  value: string;
+  label: string;
+}
+const basePlanetOptions = computed<BasePlanetOption[]>(() => {
+  const planets = new Map<string, string>();
+  for (const site of sitesStore.all.value ?? []) {
+    const naturalId = getEntityNaturalIdFromAddress(site.address);
+    if (!naturalId) {
+      continue;
+    }
+    planets.set(naturalId.toUpperCase(), naturalId);
+  }
+  return [...planets.values()]
+    .map(naturalId => {
+      const known = planetsStore.getByNaturalId(naturalId);
+      const displayId = known?.naturalId ?? naturalId;
+      const name = known?.name ?? naturalId;
+      return {
+        value: displayId,
+        label: `${name} (${displayId})`,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+});
+
+const basePlanetPlaceholder = computed(() => '选择自有基地星球');
+
+// v-model 直接落到 customPlanet，并复用手输路径的回正 / 重读逻辑。
+const selectedBasePlanet = computed<string>({
+  get: () => {
+    const current = customPlanet.value.trim().toLowerCase();
+    return basePlanetOptions.value.find(o => o.value.toLowerCase() === current)?.value ?? '';
+  },
+  set: value => {
+    if (value === '') {
+      return;
+    }
+    customPlanet.value = value;
+    applyCustomPlanet();
+  },
 });
 
 // 全部参与补给的物料 ticker（来自已建建筑，去重）。
@@ -223,24 +378,115 @@ const materialsInfo = computed<Record<string, { weight: number; volume: number }
   return result;
 });
 
-// 主求解：每次输入 / 价格 / 勾选变化都实时重算。
-const result = computed(() => {
+// 主求解：每次输入 / 价格 / 勾选 / 维生预期变化都实时重算。
+// solveBase 抽出公共输入，供主结果与两档成本对照复用，避免三处手写同一份参数。
+const solveBase = computed(() => {
   const snap = snapshot.value;
   if (!snap) {
     return undefined;
   }
-  return solve({
+  return {
     population: snap.population,
     siteCount: siteCount.value,
     currentFulfillment: snap.fulfillment,
     currentHappiness: snap.happiness,
     levels: snap.levels,
     facilityStocks: snap.facilityStocks,
-    target: target.value,
     prices: prices.value,
-    selected: userSelected.value,
     materialsInfo: materialsInfo.value,
+  };
+});
+
+const result = computed(() => {
+  const base = solveBase.value;
+  if (!base) {
+    return undefined;
+  }
+  return solve({
+    ...base,
+    selected: userSelected.value,
+    lifeSupportAssumption: lifeAssumption.value,
   });
+});
+
+// 两档维生预期的推荐备货成本对照。用户手动勾选后成本由勾选决定，对照无意义，故隐藏。
+const assumptionCosts = computed(() => {
+  const base = solveBase.value;
+  if (!base || userSelected.value !== undefined) {
+    return undefined;
+  }
+  const current = solve({ ...base, selected: undefined, lifeSupportAssumption: 'current' });
+  const full = solve({ ...base, selected: undefined, lifeSupportAssumption: 'full' });
+  return { current: current.summary.fillCost, full: full.summary.fillCost };
+});
+
+const currentLifeSupport = computed(
+  () => result.value?.summary.currentLifeSupport ?? snapshot.value?.fulfillment.LIFE_SUPPORT ?? 1,
+);
+// 肥沃星球维生恒 100%，两档等价，无需让用户切换。
+const lifeSupportFull = computed(() => currentLifeSupport.value >= 1 - 1e-9);
+
+// 说明文案拆成片段，只为「XX% 封顶」这一段套语义警示文字色（非底色）。
+const assumptionNoteParts = computed(() => {
+  const r = result.value;
+  if (!r) {
+    return [];
+  }
+  const ls = formatPercent(r.summary.currentLifeSupport);
+  if (r.summary.currentLifeSupport >= 1 - 1e-9) {
+    return [{ text: '当前维生 100%，两种维生预期等价：后五类需求不受维生封顶。' }];
+  }
+  if (r.summary.assumption === 'full') {
+    return [
+      {
+        text: '维生预期：假定一个人口报告周期内住房补齐到 100%。上方「预览」为住房补齐后的预测值；游戏此刻仍按维生 ',
+      },
+      { text: `${ls} 封顶`, emphasis: true },
+      { text: '，表内小字「当前」即该实际显示值。' },
+    ];
+  }
+  return [
+    { text: '维生预期：按当前维生 ' },
+    { text: `${ls} 封顶`, emphasis: true },
+    {
+      text: `备货，有效目标已压到 ${formatPercent(
+        r.summary.effectiveTarget,
+      )}。住房补齐后需二次采购；如需一次备足 30 天，可切到「预计补齐 100%」。`,
+    },
+  ];
+});
+
+const assumptionCostText = computed(() => {
+  const c = assumptionCosts.value;
+  if (!c) {
+    return '';
+  }
+  const delta = Math.abs(c.full - c.current);
+  const base = `推荐备货成本对照：按当前维生 ${fixed0(c.current)} ／ 预计补齐 100% ${fixed0(
+    c.full,
+  )}`;
+  // 目标未超过维生现值，或两档选出的物料集合相同时，差额天然为 0；
+  // 明确写出「等价」，避免被误读成切换没生效。
+  return delta < 1
+    ? `${base}（两档等价，差额 0：推荐物料集合相同）`
+    : `${base}（差额 ${fixed0(delta)}）`;
+});
+
+// 只有按当前有效目标确实没达标才告警；预测值与「原目标受维生限制」不混为一谈。
+const targetWarning = computed(() => {
+  const r = result.value;
+  if (!r || r.summary.achievable) {
+    return undefined;
+  }
+  const limiting = r.summary.limitingNeed;
+  if (limiting) {
+    return `按当前维生预期，目标 ${formatPercent(
+      r.summary.effectiveTarget,
+    )} 仍未达标：短板需求「${NEED_LABELS[limiting]}」被下一层限制，请补齐该层物料。`;
+  }
+  return `按当前维生预期，目标 ${formatPercent(
+    r.summary.effectiveTarget,
+  )} 仍未达标，请增加已建建筑的补给物料。`;
 });
 
 // 已建建筑列表（14 座中等级 > 0 的）。
@@ -262,6 +508,58 @@ const filteredOptions = computed(() => {
       .toLowerCase()
       .includes(query);
   });
+});
+
+// 物料表按建筑分组：buildOptions 按 UPKEEP_BUILDINGS 顺序逐建筑连续 push，
+// solve() 不重排 options，搜索只 filter 保序，故同一建筑的物料行始终相邻。
+// 每行携带：是否组首、建筑列 / 覆盖需求列 rowspan（组首为组内行数，其余为 0 不渲染）、
+// 组序号、以及整组的覆盖需求并集（按 NEEDS 顺序去重）。建筑名与覆盖需求同组共享一个合并单元格。
+interface MaterialRow {
+  option: SupplyOption;
+  buildingStart: boolean;
+  buildingSpan: number;
+  groupIndex: number;
+  groupNeeds: InfraNeed[];
+}
+const materialRows = computed<MaterialRow[]>(() => {
+  const options = filteredOptions.value;
+  const rows: MaterialRow[] = [];
+  let groupIndex = -1;
+  let previousBuilding: string | undefined;
+  // 先数每个建筑的行数，并收集整组的覆盖需求并集，组首行的合并单元格覆盖整组。
+  const counts = new Map<string, number>();
+  const needsByBuilding = new Map<string, Set<InfraNeed>>();
+  for (const option of options) {
+    counts.set(option.building, (counts.get(option.building) ?? 0) + 1);
+    let set = needsByBuilding.get(option.building);
+    if (!set) {
+      set = new Set<InfraNeed>();
+      needsByBuilding.set(option.building, set);
+    }
+    for (const need of option.needs) {
+      set.add(need);
+    }
+  }
+  // 按 INFRA_NEEDS 固定顺序输出，避免 Set 插入顺序导致标签位置跳动。
+  const orderedNeeds = (building: string): InfraNeed[] => {
+    const set = needsByBuilding.get(building) ?? new Set<InfraNeed>();
+    return INFRA_NEEDS.filter(n => set.has(n)) as InfraNeed[];
+  };
+  for (const option of options) {
+    const buildingStart = option.building !== previousBuilding;
+    if (buildingStart) {
+      groupIndex++;
+      previousBuilding = option.building;
+    }
+    rows.push({
+      option,
+      buildingStart,
+      buildingSpan: buildingStart ? (counts.get(option.building) ?? 1) : 0,
+      groupIndex,
+      groupNeeds: buildingStart ? orderedNeeds(option.building) : [],
+    });
+  }
+  return rows;
 });
 
 function materialName(ticker: string): string {
@@ -416,10 +714,20 @@ function resetToRecommended() {
   userSelected.value = undefined;
 }
 
-// 目标切换。
-function setTarget(value: 0.7 | 1) {
-  target.value = value;
-  userSelected.value = undefined; // 切换目标重新求解
+// 维生预期切换：影响有效目标与封顶基线，必须丢掉手动勾选重新求解。
+function setLifeAssumption(value: LifeSupportAssumption) {
+  lifeAssumption.value = value;
+  userSelected.value = undefined;
+}
+
+function currentLifePercent(): string {
+  return formatPercent(currentLifeSupport.value);
+}
+
+// 预测值与游戏当前实际显示值差异显著时，在预览格下方补一行小字。
+function showDisplayNow(need: Need): boolean {
+  const state = result.value?.needs[need];
+  return !!state && Math.abs(state.displayNow - state.fulfillment) > 0.005;
 }
 
 // 汇总清单：按 ticker 合并选中物料扣除基建内部存量后的待补量。
@@ -450,7 +758,7 @@ function openCbuy() {
     info.value = '当前没有选中的补给物料。';
     return;
   }
-  setGovhQuote({ planet: snapshot.value.planet, target: target.value, items });
+  setGovhQuote({ planet: snapshot.value.planet, target: 1, items });
   showBuffer('XIT CBUY GOVH');
 }
 
@@ -462,7 +770,7 @@ async function copyJson() {
     return;
   }
   const payload = {
-    name: `GOVH ${snapshot.value?.planet ?? ''} ${Math.round(target.value * 100)}%`,
+    name: `GOVH ${snapshot.value?.planet ?? ''} 100%`,
     materials: Object.fromEntries(items.map(x => [x.ticker, x.amount])),
   };
   try {
@@ -474,18 +782,17 @@ async function copyJson() {
 }
 
 // 需求满足度条的颜色类（用现有 game ColoredValue 语义，不引入裸色值）。
+// 判据用 effectiveTarget 而非 100% 原目标：current 模式下有效目标已被维生压低，
+// 按原 100% 目标比较会把已备足的行全部误标红。
 function needClass(state: { fulfillment: number; current: number }): string {
+  const effective = result.value?.summary.effectiveTarget ?? 1;
   if (state.fulfillment >= 1) {
     return C.ColoredValue.positive;
   }
-  if (state.fulfillment < target.value) {
+  if (state.fulfillment < effective) {
     return C.ColoredValue.negative;
   }
   return '';
-}
-
-function targetPercent(): string {
-  return `${Math.round(target.value * 100)}%`;
 }
 
 onMounted(() => {
@@ -506,11 +813,12 @@ onMounted(() => {
 });
 onUnmounted(() => {
   disposed.value = true;
+  stopCustomFocusGuard();
 });
 </script>
 
 <template>
-  <div :class="$style.root" :data-govh-restored="restoredFromCache ? 'cache' : 'cold'">
+  <div ref="rootEl" :class="$style.root" :data-govh-restored="restoredFromCache ? 'cache' : 'cold'">
     <div :class="$style.titleRow">
       <Header>政府基建补给助手</Header>
       <span :class="$style.hint">六类需求 × 五类人口 · 本地数据 · 零外部请求</span>
@@ -529,32 +837,58 @@ onUnmounted(() => {
           <option :value="CUSTOM_PLANET">自定义编码…</option>
         </select>
       </Active>
+      <Active v-if="customMode && basePlanetOptions.length > 0" label="自有基地星球">
+        <select
+          v-model="selectedBasePlanet"
+          :class="$style.basePlanetSelect"
+          data-govh-base-planet-select>
+          <option value="" disabled>{{ basePlanetPlaceholder }}</option>
+          <option v-for="option in basePlanetOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </Active>
       <Active v-if="customMode" label="自定义星球">
         <TextInput
           v-model="customPlanet"
           :class="$style.planetInput"
+          focus-on-mount
           placeholder="VH-192b"
           data-govh-custom-planet
           @change="applyCustomPlanet" />
       </Active>
-      <Active label="目标满足度">
-        <div :class="$style.targetGroup">
+      <Active label="维生预期">
+        <div
+          :class="$style.targetGroup"
+          data-govh-life-group
+          :data-govh-assumption="lifeAssumption">
           <PrunButton
-            :primary="target === 0.7"
-            :dark="target !== 0.7"
+            :primary="lifeAssumption === 'current'"
+            :dark="lifeAssumption !== 'current'"
+            :disabled="lifeSupportFull"
             inline
-            @click="setTarget(0.7)"
-            >70%</PrunButton
+            data-govh-life-current
+            @click="setLifeAssumption('current')"
+            >按当前 {{ currentLifePercent() }}</PrunButton
           >
-          <PrunButton :primary="target === 1" :dark="target !== 1" inline @click="setTarget(1)"
-            >100%</PrunButton
+          <PrunButton
+            :primary="lifeAssumption === 'full'"
+            :dark="lifeAssumption !== 'full'"
+            :disabled="lifeSupportFull"
+            inline
+            data-govh-life-full
+            @click="setLifeAssumption('full')"
+            >预计补齐 100%</PrunButton
           >
         </div>
       </Active>
-      <PrunButton primary :disabled="loading || planetInput === ''" @click="refreshData(true)">
-        {{ loading ? '读取中…' : '刷新数据' }}
-      </PrunButton>
-      <PrunButton dark :disabled="!snapshot" @click="refreshPrices">更新价格</PrunButton>
+      <!-- 动作按钮整体成组：宽度不够时整组换行并右对齐，不会把「维生预期」挤到第二行。 -->
+      <div :class="$style.actions">
+        <PrunButton primary :disabled="loading || planetInput === ''" @click="refreshData(true)">
+          {{ loading ? '读取中…' : '刷新数据' }}
+        </PrunButton>
+        <PrunButton dark :disabled="!snapshot" @click="refreshPrices">更新价格</PrunButton>
+      </div>
     </div>
 
     <div :class="$style.governmentHint">{{ governmentStatus }}</div>
@@ -564,9 +898,11 @@ onUnmounted(() => {
     <template v-if="snapshot && result">
       <!-- ① 现状：本期 POPR 报告明细（无折线图） + 六类需求现状/预览，左右两栏 -->
       <div :class="$style.card">
-        <SectionHeader>现状与目标预览 · {{ targetPercent() }}</SectionHeader>
+        <SectionHeader>现状与目标预览 · 100%</SectionHeader>
         <div :class="$style.sectionMeta">
-          本期人口报告明细（POPR 原生值，不含折线图） · 六类需求现状 → 补足后预览（含封顶）
+          本期人口报告明细（POPR 原生值，不含折线图） · 六类需求现状 → 补足后预览（按{{
+            lifeAssumption === 'full' ? '住房补齐后 100%' : '当前维生'
+          }}预期，含封顶）
         </div>
         <div :class="$style.summaryGrid">
           <div
@@ -578,7 +914,7 @@ onUnmounted(() => {
             <div :class="$style.statValue">{{ formatPercent(snapshot.happiness[level]) }}</div>
           </div>
         </div>
-        <div :class="$style.reportGrid">
+        <div :class="$style.reportGrid" data-govh-report-grid>
           <div :class="$style.reportColumn">
             <div :class="$style.subTitle">
               本期人口报告{{
@@ -621,34 +957,76 @@ onUnmounted(() => {
                     <th>需求</th>
                     <th title="需求量">需要</th>
                     <th title="现状满足度">现状</th>
-                    <th title="补足后预览">预览</th>
+                    <th title="按所选维生假设的补足后预测满足度">预览</th>
                     <th title="提供量">提供</th>
-                    <th title="是否封顶">封顶</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="need in NEEDS" :key="need">
-                    <td>{{ NEED_LABELS[need] }}</td>
+                    <td>
+                      <div :class="$style.needNameCell">
+                        <span>{{ NEED_LABELS[need] }}</span>
+                        <span
+                          v-if="need === 'LIFE_SUPPORT'"
+                          :class="$style.housingTag"
+                          data-govh-housing-tag>
+                          靠住房，补给无效
+                        </span>
+                      </div>
+                    </td>
                     <td :class="$style.numCell">{{ fixed0(result.needs[need].needed) }}</td>
                     <td :class="$style.numCell">{{ snapshot.fulfillmentText[need] }}</td>
                     <td :class="[$style.numCell, needClass(result.needs[need])]">
-                      <strong>{{ formatPercent(result.needs[need].fulfillment) }}</strong>
+                      <div :class="$style.previewStack">
+                        <strong>{{ formatPercent(result.needs[need].fulfillment) }}</strong>
+                        <!-- 「当前」小字始终占位一行（仅切换维生预期时显隐），避免 full 模式多出
+                             第 2 行导致整表高度跳动；visibility:hidden 仍保留布局高度。 -->
+                        <div
+                          :class="$style.previewNow"
+                          :data-govh-display-now="showDisplayNow(need) ? '' : null"
+                          :style="{ visibility: showDisplayNow(need) ? 'visible' : 'hidden' }"
+                          aria-hidden="true"
+                          >{{
+                            showDisplayNow(need)
+                              ? '当前 ' + formatPercent(result.needs[need].displayNow)
+                              : '当前'
+                          }}</div
+                        >
+                      </div>
                     </td>
                     <td :class="$style.numCell">{{ fixed0(result.needs[need].provided) }}</td>
-                    <td :class="$style.numCell">
-                      <span v-if="result.needs[need].capped" :class="$style.cappedTag">已封顶</span>
-                      <span v-else>—</span>
-                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
-        <div v-if="!result.summary.achievable && result.summary.limitingNeed" :class="$style.warn">
-          目标 {{ targetPercent() }} 在分层封顶下不可达：短板需求「{{
-            NEED_LABELS[result.summary.limitingNeed]
-          }}」被下一层限制。 请先提升低层需求，否则高层物料属于无效超买。
+        <!-- 说明区与上方双栏同栅格：两段注记左右对齐两栏表格，成本对照跨整宽收尾。
+             不放在右栏表格脚下，避免右栏被文字撑高、左栏留白。 -->
+        <div :class="$style.notes" data-govh-notes>
+          <div :class="$style.lifeNote" data-govh-life-hint>
+            <strong>「维生」</strong>需求：宜居星球恒为 100%，非宜居星球由
+            <strong>全星球住房容量</strong>决定（容量 ≥ 人口，达到100%）。基建补给无法改善这一项，
+            需由该星球入驻玩家自行新建 / 升级住房。
+          </div>
+          <div :class="$style.assumptionNote" data-govh-assumption-note
+            ><span
+              v-for="(part, index) in assumptionNoteParts"
+              :key="index"
+              :class="part.emphasis ? $style.lifeCap : undefined"
+              :data-govh-life-cap="part.emphasis ? '' : null"
+              >{{ part.text }}</span
+            ></div
+          >
+          <div
+            v-if="assumptionCostText"
+            :class="[$style.assumptionNote, $style.noteCost]"
+            data-govh-assumption-cost>
+            {{ assumptionCostText }}
+          </div>
+        </div>
+        <div v-if="targetWarning" :class="$style.warn" data-govh-target-warning>
+          {{ targetWarning }}
         </div>
       </div>
 
@@ -693,10 +1071,10 @@ onUnmounted(() => {
           <table :class="$style.table">
             <thead>
               <tr>
+                <th>建筑</th>
+                <th :class="$style.needsHeader">覆盖需求</th>
                 <th :class="$style.checkCol">选</th>
                 <th>物料</th>
-                <th>建筑</th>
-                <th>覆盖需求</th>
                 <th :class="$style.numCol">日耗</th>
                 <th :class="$style.numCol">30天填充</th>
                 <th :class="$style.numCol">待补量(30天)</th>
@@ -709,58 +1087,82 @@ onUnmounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-if="filteredOptions.length === 0">
+              <tr v-if="materialRows.length === 0">
                 <td colspan="13" :class="$style.empty">该星球没有已建基建，或没有匹配的物料。</td>
               </tr>
               <tr
-                v-for="option in filteredOptions"
-                :key="option.key"
-                :class="[option.selected ? $style.rowSelected : '']">
-                <td :class="$style.checkCol">
-                  <input
-                    type="checkbox"
-                    :checked="isSelected(option.key)"
-                    :class="$style.checkbox"
-                    @change="toggleOption(option.key)" />
+                v-for="row in materialRows"
+                :key="row.option.key"
+                :data-govh-group="row.groupIndex"
+                :data-govh-building-start="row.buildingStart ? 'true' : null"
+                :class="[
+                  row.option.selected ? $style.rowSelected : '',
+                  row.buildingStart && row.groupIndex > 0 ? $style.groupStart : '',
+                ]">
+                <td
+                  v-if="row.buildingStart"
+                  :rowspan="row.buildingSpan"
+                  :class="$style.nameCell"
+                  :title="row.option.buildingName"
+                  data-govh-col="建筑">
+                  {{ row.option.buildingName }}
+                  <span :class="$style.dim">Lv{{ row.option.builtLevel }}</span>
                 </td>
-                <td>
-                  <div :class="$style.materialCell">
-                    <MaterialIcon :ticker="option.ticker" size="medium" />
-                    <span :title="materialName(option.ticker)">{{ option.ticker }}</span>
-                  </div>
-                </td>
-                <td :class="$style.nameCell" :title="option.buildingName">
-                  {{ option.buildingName }}
-                  <span :class="$style.dim">Lv{{ option.builtLevel }}</span>
-                </td>
-                <td>
+                <td
+                  v-if="row.buildingStart"
+                  :rowspan="row.buildingSpan"
+                  :class="$style.needsCellMerged"
+                  data-govh-col="覆盖需求">
                   <div :class="$style.needsCell">
-                    <span v-for="need in option.needs" :key="need" :class="$style.needTag">
+                    <span v-for="need in row.groupNeeds" :key="need" :class="$style.needTag">
                       {{ NEED_LABELS[need] }}
                     </span>
                   </div>
                 </td>
-                <td :class="$style.numCell">{{ fixed2(option.qtyPerDay) }}</td>
-                <td :class="$style.numCell">{{ fixed0(option.grossFillAmount) }}</td>
-                <td :class="$style.numCell">{{ fixed0(option.netFillAmount) }}</td>
-                <td :class="$style.calcCell">{{ option.calculation }}</td>
-                <td :class="$style.numCell">{{
-                  option.price === undefined ? '—' : fixed2(option.price)
+                <td :class="$style.checkCol" data-govh-col="选">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected(row.option.key)"
+                    :class="$style.checkbox"
+                    @change="toggleOption(row.option.key)" />
+                </td>
+                <td data-govh-col="物料">
+                  <div :class="$style.materialCell">
+                    <MaterialIcon :ticker="row.option.ticker" size="medium" />
+                    <span :title="materialName(row.option.ticker)">{{ row.option.ticker }}</span>
+                  </div>
+                </td>
+                <td :class="$style.numCell" data-govh-col="日耗">{{
+                  fixed2(row.option.qtyPerDay)
                 }}</td>
-                <td :class="$style.sourceCell">{{ priceExchanges[option.ticker] }}</td>
-                <td :class="$style.numCell">{{
-                  option.price === undefined ? '—' : fixed0(option.dailyCost)
+                <td :class="$style.numCell" data-govh-col="30天填充">{{
+                  fixed0(row.option.grossFillAmount)
                 }}</td>
-                <td :class="$style.numCell">{{
-                  option.price === undefined ? '—' : fixed0(option.netFillCost)
+                <td :class="$style.numCell" data-govh-col="待补量(30天)">{{
+                  fixed0(row.option.netFillAmount)
                 }}</td>
-                <td :class="$style.numCell">
+                <td :class="$style.calcCell" data-govh-col="计算过程">{{
+                  row.option.calculation
+                }}</td>
+                <td :class="$style.numCell" data-govh-col="单价">{{
+                  row.option.price === undefined ? '—' : fixed2(row.option.price)
+                }}</td>
+                <td :class="$style.sourceCell" data-govh-col="来源">{{
+                  priceExchanges[row.option.ticker]
+                }}</td>
+                <td :class="$style.numCell" data-govh-col="日成本">{{
+                  row.option.price === undefined ? '—' : fixed0(row.option.dailyCost)
+                }}</td>
+                <td :class="$style.numCell" data-govh-col="待补成本">{{
+                  row.option.price === undefined ? '—' : fixed0(row.option.netFillCost)
+                }}</td>
+                <td :class="$style.numCell" data-govh-col="性价比">
                   {{
-                    option.efficiency < 0
+                    row.option.efficiency < 0
                       ? '—'
-                      : option.efficiency === Infinity
+                      : row.option.efficiency === Infinity
                         ? '免费'
-                        : fixed2(option.efficiency * 1000)
+                        : fixed2(row.option.efficiency * 1000)
                   }}
                 </td>
               </tr>
@@ -846,6 +1248,15 @@ onUnmounted(() => {
 .governmentSelect {
   width: 240px;
   max-width: 100%;
+  font-size: 11px;
+  color: var(--rp-skin-ink, currentColor);
+}
+/* 自有基地星球下拉：选项文字较长，稍宽于政府下拉；字号与面板原生控件统一为 11px，
+   颜色仍走主题 ink（R02）。 */
+.basePlanetSelect {
+  width: 280px;
+  max-width: 100%;
+  font-size: 11px;
   color: var(--rp-skin-ink, currentColor);
 }
 .planetInput {
@@ -859,6 +1270,12 @@ onUnmounted(() => {
 .targetGroup {
   display: inline-flex;
   gap: 2px;
+}
+/* 动作按钮组：与参数组同一行放不下时整组换行，并靠右收尾（左对齐会留下一大片空白）。 */
+.actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
 }
 .error {
   padding: 6px 8px;
@@ -938,6 +1355,64 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 说明区：与上方 reportGrid 用同一套 auto-fit + minmax（R29），窄面板自动落回单栏。
+   整块共用一条左侧装饰色条，两段注记左右对齐两栏表格，成本对照跨整宽收尾；
+   不把文字堆在右栏表格脚下，避免左右两栏底部参差。 */
+.notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 2px 10px;
+  align-items: start;
+  margin: 2px 0 4px;
+  padding: 3px 0 3px 8px;
+  border-left: 2px solid rgb(var(--rp-accent-rgb));
+}
+/* 维生来源提示 / 维生预期说明：文字走 ink（R02），11px 满足 R09，
+   opacity 显式归 1 避免被全局可读性兜底压淡（R10）。色条由 .notes 统一提供。 */
+.lifeNote,
+.assumptionNote {
+  color: var(--rp-skin-ink, currentColor);
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 1;
+  min-width: 0;
+}
+.lifeNote strong {
+  color: var(--rp-skin-ink, currentColor);
+  font-weight: 600;
+}
+/* 「86.0% 封顶」用语义警示色强调：只改文字色与字重，不铺底色（R02 / R27）。
+   --rp-skin-danger 三套色板都有，原样主题回退 currentColor；不用装饰色
+   --rp-accent-rgb 当文字色，也不写裸色值。 */
+.lifeCap {
+  color: var(--rp-skin-danger, currentColor);
+  font-weight: 600;
+}
+/* 成本对照独占一整行，用细线与上方两段注记分开。 */
+.noteCost {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--rp-skin-border, currentColor);
+  margin-top: 2px;
+  padding-top: 3px;
+}
+/* 预览格内的「当前实际显示值」小字：与主预测值同色但常规字重，不加底色。 */
+.previewNow {
+  color: var(--rp-skin-ink, currentColor);
+  font-size: 11px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+}
+/* 预览列用固定 2 行高的堆叠容器：主预测值在上、「当前」小字在下且始终占位
+   （显隐用 visibility 而非 v-if），确保切换维生预期时整表高度不跳动（R31）。 */
+.previewStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  min-height: 2.6em;
+  justify-content: flex-end;
+}
 .tableWrap {
   min-width: 0;
   overflow-x: auto;
@@ -964,11 +1439,13 @@ onUnmounted(() => {
 .table.miniTable td {
   padding: 2px 4px;
 }
-.table tbody tr:hover {
-  background: rgba(var(--rp-accent-rgb), 0.08);
+/* 勾选 / hover 只给「选」及其后的 td 着色；建筑与覆盖需求是 rowspan 合并单元格，
+   必须保持透明，避免 tr 级底色透上去后看起来像分组底色（R30）。 */
+.table tbody tr:hover td:not([data-govh-col='建筑']):not([data-govh-col='覆盖需求']) {
+  background-color: rgba(var(--rp-accent-rgb), 0.08) !important;
 }
-.rowSelected {
-  background: rgba(var(--rp-accent-rgb), 0.1);
+.table tbody tr.rowSelected td:not([data-govh-col='建筑']):not([data-govh-col='覆盖需求']) {
+  background-color: rgba(var(--rp-accent-rgb), 0.1) !important;
 }
 /* 必须带 .table 前缀：`.table th, .table td` 是 (0,1,1)，
    裸 .numCell / .checkCol 只有 (0,1,0)，会被左对齐覆盖（R28）。 */
@@ -999,6 +1476,32 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* R30：同一建筑的建筑列 / 覆盖需求列都合并单元格；组间只保留粗线 + 建筑列色条，
+   不加交替底色（用户要求：留粗线即可，底色区分去掉）。 */
+/* 组间粗线：`.table th, .table td` 是 (0,1,1)，必须带 .table + 双类抬到足够特异性。 */
+.table tbody tr.groupStart td {
+  border-top: 2px solid var(--rp-skin-border-strong, currentColor);
+}
+/* 被合并的建筑单元格：垂直居中、左侧 2px 色条标识分组，文字色仍随主题。
+   rowspan 单元格会被游戏原生 !important 规则刷成灰底（真机 rgb(240,240,240)），
+   必须同样用 !important 才能清掉，避免被误读成「分组底色」。 */
+.table .nameCell[rowspan] {
+  vertical-align: middle;
+  border-left: 2px solid rgb(var(--rp-accent-rgb));
+  padding-left: 8px;
+  color: var(--rp-skin-ink, currentColor);
+  background-color: transparent !important;
+}
+/* 覆盖需求列同样按建筑合并：垂直居中，并在与「选」列之间保留 2px 竖向边界。
+   表头与合并单元格使用同一条边界，避免列顺序调整后两列看起来连在一起。 */
+.table .needsHeader {
+  border-right: 2px solid var(--rp-skin-border-strong, currentColor) !important;
+}
+.table .needsCellMerged[rowspan] {
+  vertical-align: middle;
+  border-right: 2px solid var(--rp-skin-border-strong, currentColor) !important;
+  background-color: transparent !important;
+}
 .dim {
   color: rgb(148, 158, 166);
   margin-left: 4px;
@@ -1013,14 +1516,27 @@ onUnmounted(() => {
   padding: 0 4px;
   border-radius: 2px;
   background: rgba(var(--rp-accent-rgb), 0.14);
-  color: rgb(200, 208, 214);
+  color: var(--rp-skin-ink, currentColor);
+  font-size: 11px;
+}
+.needNameCell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+/* 维生行角标：装饰边框用强调色，文字走 ink（R02，禁止 accent 当文字色）。 */
+.housingTag {
+  display: inline-block;
+  padding: 0 3px;
+  border: 1px solid rgb(var(--rp-accent-rgb));
+  border-radius: 2px;
+  background: rgba(var(--rp-accent-rgb), 0.08);
+  color: var(--rp-skin-ink, currentColor);
   font-size: 11px;
 }
 .sourceCell {
   color: rgb(148, 158, 166);
-}
-.cappedTag {
-  color: rgb(229, 115, 115);
 }
 .warn {
   padding: 5px 8px;

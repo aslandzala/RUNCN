@@ -181,10 +181,14 @@ function onGenerateClick() {
 // 会二次扣减（这是之前 CBUY 与 FLEET 预览数量对不上的同源问题）。
 // 包名与 CBUY 生成的 `REPD <编码> Buy` 分开，不互相覆盖。
 function generateFromPreset(siteId: string) {
+  // 单一交易所场景：所有物料都从所选交易所仓库抵扣并就地买 / 转，与 XIT CBUY 单市场
+  // 模式同一口径（PR #60 审查 #220 的 deductNeeds 新签名）。
+  const exchangeCode = exchange.value;
   const deductions = deductNeeds(
     (presetBill ?? []).map(x => ({ ticker: x.ticker, name: x.ticker, amount: x.amount })),
     getBaseStoreInventory(siteId),
-    getExchangeWarehouseInventory(exchange.value),
+    { [exchangeCode]: getExchangeWarehouseInventory(exchangeCode) },
+    () => exchangeCode,
   );
 
   const buy: Record<string, number> = {};

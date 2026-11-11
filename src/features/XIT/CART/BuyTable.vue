@@ -181,8 +181,19 @@ const splitMarketMode = computed({
 // 默认市场按「完整需求」算，不随抵扣结果变化，否则会形成
 // 「选市场 -> 扣库存 -> 改价格 -> 换最优市场」的循环依赖。
 const grossComponents = computed(() => computeComponents(grossNeeds.value, exchanges));
-const grossTotals = computed(() => computeTotals(grossComponents.value, exchanges));
-const cheapestSingleExchange = computed(() => grossTotals.value.cheapestSingle?.code);
+// 仅「已勾选」物料参与「最便宜单交易所 / 最优混合」与 ACT 默认单市场计算，保证卡片
+// 和 ACT 用同一组物料算市场，避免出现「卡片标 NC1 最优、ACT 却在 AI1 买」的错位
+// （PR #60 审查 #222）。未勾选任何一项时退化为全部，避免购物车首次打开（默认全空）
+// 时比价栏空白。
+const marketNeeds = computed(() =>
+  selectedTickers.value.size > 0
+    ? grossNeeds.value.filter(n => selectedTickers.value.has(n.ticker))
+    : grossNeeds.value,
+);
+const marketTotals = computed(() =>
+  computeTotals(computeComponents(marketNeeds.value, exchanges), exchanges),
+);
+const cheapestSingleExchange = computed(() => marketTotals.value.cheapestSingle?.code);
 const chosenSingleExchange = computed(() =>
   singleMarketMode.value ? forcedExchange.value || cheapestSingleExchange.value : undefined,
 );
@@ -204,14 +215,36 @@ const deductionExchange = computed(() => {
 const baseInventory = computed<CbuyInventory>(() =>
   repairMode.value ? getBaseStoreInventory(repairQuote.value?.siteId) : {},
 );
-const exchangeInventory = computed<CbuyInventory>(() =>
-  tempMode.value ? getExchangeWarehouseInventory(deductionExchange.value) : {},
-);
+// 四个交易所仓库的库存快照：抵扣按「实际出库市场」逐市场取数，而不是统一扣一个市场
+// （PR #60 审查 #220）。
+const exchangeInventories = computed<Record<string, CbuyInventory>>(() => {
+  const map: Record<string, CbuyInventory> = {};
+  for (const ex of exchanges) {
+    map[ex.code] = getExchangeWarehouseInventory(ex.code);
+  }
+  return map;
+});
 const inventoryReady = computed(() => !tempMode.value || isCbuyInventoryReady());
+
+// 每种物料的实际出库（买 / 转）交易所：单市场模式统一为 chosenSingleExchange；
+// 分市场模式取各物料的最优价交易所（computeComponents 的 bestExchange，仅由价格决定，
+// 与数量 / 是否勾选无关）。抵扣交易所必须和它一致，否则会出现「在 A 市场扣了库存、
+// 却从 B 市场买 / 转」的数量错配（PR #60 审查 #220）。
+function outboundExchange(ticker: string): string | undefined {
+  if (singleMarketMode.value) {
+    return chosenSingleExchange.value;
+  }
+  return grossComponents.value.find(c => c.ticker === ticker)?.bestExchange;
+}
 
 const deductions = computed<CbuyDeduction[]>(() =>
   tempMode.value
-    ? deductNeeds(grossNeeds.value, baseInventory.value, exchangeInventory.value)
+    ? deductNeeds(
+        grossNeeds.value,
+        baseInventory.value,
+        exchangeInventories.value,
+        outboundExchange,
+      )
     : grossNeeds.value.map(need => ({
         ticker: need.ticker,
         name: need.name,
@@ -258,7 +291,9 @@ function deductionTip(ticker: string) {
   return [
     `完整需求 ${fixed0(d.gross)}`,
     d.base > 0 ? `基地仓库 −${fixed0(d.base)}` : '',
-    d.exchange > 0 ? `${deductionExchange.value || '交易所'} 仓库 −${fixed0(d.exchange)}` : '',
+    d.exchange > 0
+      ? `${d.exchangeCode || deductionExchange.value || '交易所'} 仓库 −${fixed0(d.exchange)}`
+      : '',
     `= 采购 ${fixed0(d.net)}`,
     `需转移 ${fixed0(d.transfer)}`,
   ]
@@ -350,8 +385,13 @@ const actGroups = computed<Map<string, CbuyActGroup>>(() => {
     if (!d || d.transfer <= 0) {
       continue;
     }
-    // 没有任何市场凑齐全部物品时 chosenSingleExchange 为空，自动退回混合。
-    const code = single ?? c.bestExchange;
+    // 买：必须能定价，所以用有报价的最优市场；纯转移（net=0）则只要能找到供货仓库
+    // 即可路由，不必等报价（交易所仓库里已有这件物料、但暂时没有实时卖单的场景），
+    // 否则整行会被 `code` 为空丢弃，导致生成的 ACT 里漏掉这批转运（PR #60 审查 #223）。
+    let code = single ?? c.bestExchange;
+    if (!code && d.net === 0) {
+      code = d.exchangeCode;
+    }
     if (!code) {
       continue;
     }
@@ -679,7 +719,9 @@ function isBest(component: { bestExchange?: string }, code: string) {
         </template>
         <template v-if="tempMode">
           · 抵扣仓库
-          <strong :data-cbu-exchange="deductionExchange">{{ deductionExchange || '—' }}</strong>
+          <strong :data-cbu-exchange="deductionExchange">{{
+            splitMarketMode ? '分市场' : deductionExchange || '—'
+          }}</strong>
           <template v-if="repairMode"> + 基地仓库</template>
           <span v-if="!inventoryReady" :class="$style.summaryWarn">（库存读取中…）</span>
           <span v-else
