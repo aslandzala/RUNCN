@@ -520,6 +520,8 @@ interface MaterialRow {
   buildingSpan: number;
   groupIndex: number;
   groupNeeds: InfraNeed[];
+  fillDisabled: boolean;
+  fillTitle: string;
 }
 const materialRows = computed<MaterialRow[]>(() => {
   const options = filteredOptions.value;
@@ -557,6 +559,9 @@ const materialRows = computed<MaterialRow[]>(() => {
       buildingSpan: buildingStart ? (counts.get(option.building) ?? 1) : 0,
       groupIndex,
       groupNeeds: buildingStart ? orderedNeeds(option.building) : [],
+      // 读数期间 POPID hidden 窗口可能与目标命令同名，禁用以免复用到正在关闭的窗。
+      fillDisabled: loading.value || planetInput.value.trim() === '',
+      fillTitle: `打开 ${option.buildingName}（${option.building}）的 POPID 窗口，自行拖动维护供给滑块并点游戏原生「贡献」提交。GOVH 只负责打开窗口，不代填、不代提交。`,
     });
   }
   return rows;
@@ -760,6 +765,19 @@ function openCbuy() {
   }
   setGovhQuote({ planet: snapshot.value.planet, target: 1, items });
   showBuffer('XIT CBUY GOVH');
+}
+
+// 打开某建筑的 POPID 原生详情窗口，把「逐物料填充」交还给玩家自己操作。
+// 只开窗、不设置任何贡献滑块、不点「贡献」提交：守住 ToS「服务器写操作必须由
+// 用户点击触发」与 GOVH 方案红线 #5「不自动补给/下单」。showBuffer 不带 autoClose
+// 即打开可见窗口；同名窗口已存在时聚焦而非重复新建。读数期间的 hidden 窗口可能
+// 与命令同名，故按钮在 loading 时禁用，避免复用到正在关闭的隐藏窗。
+function openPopid(building: string) {
+  if (!snapshot.value) {
+    return;
+  }
+  const planet = snapshot.value.planet.replace(/^p-/i, '');
+  void showBuffer(`POPID p-${planet} t-${building}`);
 }
 
 // 复制 XIT JSON（购物车可直接识别的格式），便于分享 / 导入。
@@ -1053,6 +1071,8 @@ onUnmounted(() => {
           本地实时价格下的逐需求贪心近似（非严格全局最优），可手动调整。
           单价统一来自本地订单簿实时买一价（与 BPC/BMAT/CBUY
           同一口径），无报价显示「—」，可点「更新价格」订阅。
+          每座建筑名下的「填充此建筑」会打开该建筑的 POPID 原生窗口，滑块由你自己拖、
+          「贡献」由你自己点；GOVH 只开窗，不代填、不代提交。
         </div>
         <div :class="$style.materialToolbar">
           <SearchInput
@@ -1105,8 +1125,21 @@ onUnmounted(() => {
                   :class="$style.nameCell"
                   :title="row.option.buildingName"
                   data-govh-col="建筑">
-                  {{ row.option.buildingName }}
-                  <span :class="$style.dim">Lv{{ row.option.builtLevel }}</span>
+                  <div :class="$style.nameCellContent">
+                    <div :class="$style.buildingName">
+                      {{ row.option.buildingName }}
+                      <span :class="$style.dim">Lv{{ row.option.builtLevel }}</span>
+                    </div>
+                    <PrunButton
+                      dark
+                      inline
+                      :class="$style.fillButton"
+                      :disabled="row.fillDisabled"
+                      :title="row.fillTitle"
+                      @click="openPopid(row.option.building)">
+                      填充此建筑
+                    </PrunButton>
+                  </div>
                 </td>
                 <td
                   v-if="row.buildingStart"
@@ -1471,10 +1504,34 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
 }
-.nameCell {
-  max-width: 120px;
+/* 带 .table 前缀抬特异性（0,2,0 > `.table td` 的 0,1,1），确保合并单元格内
+   纵向 flex 布局不被 td 的 white-space:nowrap 干扰。 */
+.table .nameCell {
+  max-width: 130px;
+  white-space: normal;
+  vertical-align: middle;
+}
+/* 合并的建筑单元格内纵向排列「建筑名 + 填充此建筑」按钮。
+   不能用 overflow:hidden + text-overflow:ellipsis，否则按钮被裁掉；
+   建筑名过长时单独省略，按钮始终可见。 */
+.nameCellContent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+.buildingName {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fillButton {
+  max-width: 100%;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.4;
 }
 /* R30：同一建筑的建筑列 / 覆盖需求列都合并单元格；组间只保留粗线 + 建筑列色条，
    不加交替底色（用户要求：留粗线即可，底色区分去掉）。 */
