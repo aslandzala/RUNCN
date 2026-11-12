@@ -190,29 +190,15 @@ function cellsOf(row: HTMLTableRowElement): string[] {
   return Array.from(row.children).map(cell => cleanLabel(cell.textContent ?? ''));
 }
 
-// 找本次 showBuffer 新建的窗口。
-// buffers.ts 在 autoClose 下会先释放串行队列再真正关闭旧窗口；如果只按 command
-// 文本找，新窗口在命令标题尚未写入时会拿到空标题并被错过。先锁定「本次新增」的
-// 窗口元素，再优先按命令匹配，匹配不到就直接用新增的那个（它一定属于本次调用）。
-function findCreatedWindow(command: string, before: Set<HTMLElement>): HTMLElement | undefined {
-  const candidates = _$$(document, C.Window.window).filter(window => !before.has(window));
-  const normalized = command.trim().toUpperCase();
-  return (
-    candidates.find(window => {
-      const cmd = _$(window, C.TileFrame.cmd)?.textContent?.trim().toUpperCase() ?? '';
-      return cmd === normalized;
-    }) ??
-    candidates.find(window => {
-      const cmd = _$(window, C.TileFrame.cmd)?.textContent?.trim() ?? '';
-      return cmd === '';
-    }) ??
-    candidates[0]
-  );
-}
-
 // 等待窗口出现且表格数据就绪，然后解析；超时返回 undefined。
 // prepare 只用于 LR：开窗后切到「项目」标签。每轮轮询都会调用，实现必须幂等
 // （已激活就直接返回），否则 React 重绘期间会反复点击。POPR / POPI / POPID 不传。
+//
+// 窗口一律取 showBuffer 的返回值，不再「按 before 集合猜新窗口」：
+// buffers.ts 的 acquireSlot 是串行队列，两次 GOVH 读取重叠时两边都会在窗口创建前
+// 抓同一份 before，猜窗口就会拿到另一次为别的星球开的窗口；parsePopr 又会把结果
+// 贴上本次请求的星球名，于是新的一次读取会显示并缓存旧星球的人口与采购需求
+// （loadSeq 拦不住，因为数据确实「读到了」）。见 PR #60 审查 P1。
 async function withBuffer<T>(
   command: string,
   timeout: number,
@@ -221,28 +207,31 @@ async function withBuffer<T>(
 ): Promise<T | undefined> {
   const ready = ref(false);
   const deadline = Date.now() + timeout;
-  // 先记下已有窗口，之后只认本次新增的那一个。
-  const before = new Set(_$$(document, C.Window.window));
-  void showBuffer(command, {
-    force: true,
-    autoClose: true,
-    closeWhen: computed(() => ready.value),
-  });
+  // 兜底：showBuffer 内部还要等 Dock 的「新建」按钮与串行队列，极端情况下可能
+  // 久等不到。超时后先返回，finally 里的 ready=true 仍会让它自己开完再关掉。
+  const created = await Promise.race([
+    showBuffer(command, {
+      force: true,
+      autoClose: true,
+      closeWhen: computed(() => ready.value),
+    }),
+    sleep(timeout).then(() => undefined),
+  ]);
   try {
+    if (!created) {
+      return undefined;
+    }
     while (Date.now() < deadline) {
-      const window = findCreatedWindow(command, before);
-      if (window) {
-        // 游戏把无法识别的指令渲染成空标题的「无效指令」窗口。快速失败，
-        // 否则逐建筑读取时每座都要空等整个超时，面板会长时间停在「读取中…」。
-        const text = window.textContent ?? '';
-        if (text.includes('无效指令') || /invalid command/i.test(text)) {
-          return undefined;
-        }
-        prepare?.(window);
-        const result = parse(window);
-        if (result !== undefined) {
-          return result;
-        }
+      // 游戏把无法识别的指令渲染成空标题的「无效指令」窗口。快速失败，
+      // 否则逐建筑读取时每座都要空等整个超时，面板会长时间停在「读取中…」。
+      const text = created.textContent ?? '';
+      if (text.includes('无效指令') || /invalid command/i.test(text)) {
+        return undefined;
+      }
+      prepare?.(created);
+      const result = parse(created);
+      if (result !== undefined) {
+        return result;
       }
       await sleep(150);
     }
@@ -250,19 +239,16 @@ async function withBuffer<T>(
   } finally {
     // 无论成功超时都让 hidden 窗口关闭，避免残留。
     ready.value = true;
-    // buffers.ts 的 processWindow 只 `void closeWhenDone()`，showBuffer 会在真正的
-    // 关闭动画完成前就释放串行队列。必须等本次新增窗口从 DOM 断开，
-    // 否则下一个 POPID 窗口会抢到正在关闭的壳，命令标题是空的（实测会卡住）。
-    const created = _$$(document, C.Window.window).filter(window => !before.has(window));
-    for (const window of created) {
-      for (let i = 0; i < 30 && window.isConnected; i++) {
+    if (created) {
+      // buffers.ts 的 processWindow 只 `void closeWhenDone()`，showBuffer 会在真正的
+      // 关闭动画完成前就释放串行队列。必须等本次窗口从 DOM 断开，
+      // 否则下一个 POPID 窗口会抢到正在关闭的壳，命令标题是空的（实测会卡住）。
+      for (let i = 0; i < 30 && created.isConnected; i++) {
         await sleep(50);
       }
-    }
-    // 窗口 DOM 断开后，PrUn 内部的 tile id → 窗口映射还会晚一拍更新。
-    // 连续开多个 hidden 窗口时留一个短暂 settle 窗口给游戏自己收敛
-    // （不抢前台、不额外开窗）。实测 250ms 足够，避免逐建筑读取累加等待。
-    if (created.length > 0) {
+      // 窗口 DOM 断开后，PrUn 内部的 tile id → 窗口映射还会晚一拍更新。
+      // 连续开多个 hidden 窗口时留一个短暂 settle 窗口给游戏自己收敛
+      // （不抢前台、不额外开窗）。实测 250ms 足够，避免逐建筑读取累加等待。
       await sleep(250);
     }
   }
@@ -781,13 +767,40 @@ function parsePopidStock(window: HTMLElement): FacilityMaterialStocks | undefine
   return parsed > 0 ? stocks : undefined;
 }
 
+// 最近一次读取失败的具体原因（给面板提示用）。成功或取走即清空。
+let lastFailure: string | undefined;
+
+export function takeReadFailure(): string | undefined {
+  const failure = lastFailure;
+  lastFailure = undefined;
+  return failure;
+}
+
+// 整次快照读取的全局串行锁。
+// 页面里可能同时存在多个 GOVH 面板（独立窗口、FB 面板内嵌、用户自己开好几个），
+// 它们各自读快照时会互相抢 hidden 窗口：POPR / LR / 逐建筑 POPID 的轮询一旦交叉，
+// 后来的那次很容易拿不到某座建筑的维护表；而「缺一座就拒收」之后，整块面板会直接
+// 报读取失败。串行化后窗口不交叉，也让「绑定 showBuffer 返回窗口」这条更稳。
+let readChain: Promise<unknown> = Promise.resolve();
+
+function withSnapshotLock<T>(task: () => Promise<T>): Promise<T> {
+  // then 的双回调形式：上一个任务失败也不能把后面的锁打断。
+  const run = readChain.then(task, task);
+  readChain = run.catch(() => undefined);
+  return run;
+}
+
 // 从游戏本地 DOM 读取某星球的治理现状。
 // 依次打开 POPR、LR（一次开窗读完「人口」+「项目」两个标签）、每个已建建筑的
 // POPID hidden 窗口；LR 读到基础设施表时不再开 POPI（少一个窗口），读不到才回退 POPI。
 // 关键数据失败返回 undefined（面板降级提示），绝不按 0 存量静默给出偏大清单。
 // LR 是可选增强：读不到「项目」时面板降级回 POPR 的单行项目；读不到「人口」时
 // effectiveLevels 缺省、求解回退已建造等级，保持旧行为。两者都不阻断主流程。
-export async function readGovernanceSnapshot(planet: string): Promise<GovhSnapshot | undefined> {
+export function readGovernanceSnapshot(planet: string): Promise<GovhSnapshot | undefined> {
+  return withSnapshotLock(() => readGovernanceSnapshotLocked(planet));
+}
+
+async function readGovernanceSnapshotLocked(planet: string): Promise<GovhSnapshot | undefined> {
   // 星球编码保留玩家输入的原样（PrUn natural ID 大小写敏感，如 VH-192b）。
   const target = planet.trim();
   if (target === '') {
@@ -797,6 +810,7 @@ export async function readGovernanceSnapshot(planet: string): Promise<GovhSnapsh
     parsePopr(window, target),
   );
   if (!popr) {
+    lastFailure = `POPR ${target} 的人口 / 需求满足度表没读到`;
     return undefined;
   }
   const lr = await readLr(target);
@@ -806,6 +820,7 @@ export async function readGovernanceSnapshot(planet: string): Promise<GovhSnapsh
     ? Object.fromEntries(infra.levels.map(entry => [entry.ticker, entry.built]))
     : await withBuffer(`POPI ${target}`, POPI_TIMEOUT, parsePopi);
   if (!levels) {
+    lastFailure = `POPI ${target} 的已建造等级没读到`;
     return undefined;
   }
   // 「当前」列是上一周期实际运行等级：目标降级 / 断供时会小于建成等级，
@@ -816,21 +831,42 @@ export async function readGovernanceSnapshot(planet: string): Promise<GovhSnapsh
 
   // 逐建筑打开 POPID 详情窗口。汇总命令 `POPID p-<planet>` 不带维护供给表，
   // 必须带 `t-<ticker>`；只读取已建建筑，避免无谓窗口。
-  const facilityStocks: FacilityStocks = {};
   const built = UPKEEP_BUILDINGS.filter(b => (levels[b.ticker] ?? 0) > 0);
-  for (const building of built) {
+  const facilityStocks: FacilityStocks = {};
+  const readStocks = async (ticker: string) => {
     const stocks = await withBuffer(
       // POPID 必须带 `p-` 星球前缀；不带前缀会被游戏判为「无效指令」。
-      `POPID p-${target} t-${building.ticker}`,
+      `POPID p-${target} t-${ticker}`,
       POPID_TIMEOUT,
       parsePopidStock,
     );
     if (stocks) {
-      facilityStocks[building.ticker] = stocks;
+      facilityStocks[ticker] = stocks;
+    }
+    return stocks !== undefined;
+  };
+  for (const building of built) {
+    await readStocks(building.ticker);
+  }
+  // 缺哪座就单独重试哪座（最多 3 轮）：hidden 窗口偶尔会被并发的其它读窗挤掉，
+  // 一次失败不代表数据真的读不到。
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const missing = built.filter(building => facilityStocks[building.ticker] === undefined);
+    if (missing.length === 0) {
+      break;
+    }
+    await sleep(400);
+    for (const building of missing) {
+      await readStocks(building.ticker);
     }
   }
-  // 有已建建筑却一个维护表都没读到时宁可报错，也不能按 0 存量给出偏大的采购量。
-  if (built.length > 0 && Object.keys(facilityStocks).length === 0) {
+  // 仍有建筑没读到就整份拒收，绝不能放行：
+  // 缺失建筑在 safeStock(stock?.reserve / nextConsumption) 里会变成 0 存量，
+  // 于是「已经存了不少料」的建筑被当成空仓、推荐买满一份，而且这份不完整快照
+  // 还会被写进缓存（PR #60 审查 P2）。宁可让面板提示读取失败。
+  const missing = built.filter(building => facilityStocks[building.ticker] === undefined);
+  if (missing.length > 0) {
+    lastFailure = `已建建筑 ${missing.map(building => building.ticker).join(' / ')} 的 POPID 维护供给表没读到`;
     return undefined;
   }
   return {

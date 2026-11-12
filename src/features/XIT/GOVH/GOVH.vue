@@ -19,11 +19,17 @@ import { sitesStore } from '@src/infrastructure/prun-api/data/sites';
 import { planetsStore } from '@src/infrastructure/prun-api/data/planets';
 import { materialsStore } from '@src/infrastructure/prun-api/data/materials';
 import { fixed0, fixed2, percent1 } from '@src/utils/format';
-import { readGovernanceSnapshot, type GovernanceProjectEntry, type GovhSnapshot } from './govh-dom';
+import {
+  readGovernanceSnapshot,
+  takeReadFailure,
+  type GovernanceProjectEntry,
+  type GovhSnapshot,
+} from './govh-dom';
 import { readCachedSnapshot, writeCachedSnapshot } from './govh-cache';
 import { useManagedGovernments } from './govh-governments';
 import { setGovhQuote } from './govh-quote';
 import { readPrices, subscribePrices, GOVH_EXCHANGES } from './govh-prices';
+import { readPlanetBaseCount } from './govh-base-count';
 import {
   solve,
   LEVELS,
@@ -311,6 +317,13 @@ const siteCount = computed(() => {
   ).length;
 });
 
+// 整星基地数（含其他公司的基地）。安全 / 健康的基础供给是「每座基地 +50」且整星
+// 共享，用自有基地数会在共享星球上少算一个数量级，进而多买安全 / 健康物料
+// （PR #60 审查 P2）。来源是星球聊天频道「用户列表」的会员数（本地窗口，
+// 不连任何外部网站）；读不到时回退自有基地数，宁可变保守也不报错。
+const planetBaseCount = ref<number | undefined>(undefined);
+const baseCount = computed(() => planetBaseCount.value ?? siteCount.value);
+
 // 自定义模式的主入口：只列「自有基地星球」，不拉全量星球列表、不硬编码账号数据。
 // 游戏约束每个玩家在每个星球只能有 1 座基地，所以按 naturalId 去重即可，不显示基地数量。
 // 基地来自本地 sitesStore；星球显示名 / 大小写回正来自本地 planetsStore。
@@ -403,7 +416,7 @@ const solveBase = computed(() => {
   }
   return {
     population: snap.population,
-    siteCount: siteCount.value,
+    baseCount: baseCount.value,
     currentFulfillment: snap.fulfillment,
     currentHappiness: snap.happiness,
     // LR「人口」标签给出上一周期实际运行等级；目标降级 / 断供时它小于已建造等级，
@@ -653,6 +666,18 @@ function restoreFromCache(): boolean {
 }
 restoreFromCache();
 
+// 记录上一次按哪个星球读过整星基地数，切星球时要把旧值清掉。
+let lastBaseCountPlanet = '';
+
+// 读整星基地数（hidden COMG 窗口）。失败不阻断主流程：baseCount 回退自有基地数。
+async function refreshBaseCount(planet: string, force: boolean, seq: number) {
+  const count = await readPlanetBaseCount(planet, force);
+  if (disposed.value || seq !== loadSeq) {
+    return;
+  }
+  planetBaseCount.value = count?.total;
+}
+
 // 读取 POPR / POPI / POPID 快照。loadSeq 保证快速切换政府时只认最后一次结果。
 // force=true（「刷新数据」按钮）绕过会话缓存并覆写；普通打开 / 切回直接复用。
 async function refreshData(force = false) {
@@ -672,6 +697,10 @@ async function refreshData(force = false) {
   if (snapshot.value && snapshot.value.planet !== planet) {
     snapshot.value = undefined;
   }
+  if ((snapshot.value?.planet ?? planet).toUpperCase() !== lastBaseCountPlanet) {
+    planetBaseCount.value = undefined;
+    lastBaseCountPlanet = planet.toUpperCase();
+  }
   try {
     const cached = force ? undefined : readCachedSnapshot(planet);
     if (cached) {
@@ -680,11 +709,8 @@ async function refreshData(force = false) {
         cached.snapshot,
         `本地缓存（${cacheAge(cached.savedAt)}，点「刷新数据」重读）`,
       );
-      void subscribePrices(
-        tickers.value,
-        ticker => prices.value[ticker] !== undefined,
-        () => disposed.value,
-      );
+      void subscribePrices(tickers.value, () => disposed.value);
+      void refreshBaseCount(planet, force, seq);
       return;
     }
     const snap = await readGovernanceSnapshot(planet);
@@ -692,7 +718,12 @@ async function refreshData(force = false) {
       return;
     }
     if (!snap) {
-      error.value = `读取 ${planet} 的 POPR / POPI / POPID 失败：请确认星球编码正确、游戏原生窗口可正常打开，且已建建筑的维护供给表可读。`;
+      // 失败原因由 govh-dom 回传（POPR / POPI / 哪几座建筑的 POPID 没读到），
+      // 比一句笼统的「读取失败」更好定位。
+      const reason = takeReadFailure();
+      error.value = reason
+        ? `读取 ${planet} 失败：${reason}。请确认该游戏原生窗口能正常打开，再点「刷新数据」重试一次。`
+        : `读取 ${planet} 的 POPR / POPI / POPID 失败：请确认星球编码正确、游戏原生窗口可正常打开，且已建建筑的维护供给表可读。`;
       snapshot.value = undefined;
       return;
     }
@@ -700,11 +731,8 @@ async function refreshData(force = false) {
     writeCachedSnapshot(planet, snap);
     info.value = snapshotInfo(snap, '刚刚从本地窗口读取');
     // 本地订单簿按需订阅（hidden CXOB，零外部请求）。
-    void subscribePrices(
-      tickers.value,
-      ticker => prices.value[ticker] !== undefined,
-      () => disposed.value,
-    );
+    void subscribePrices(tickers.value, () => disposed.value);
+    void refreshBaseCount(planet, force, seq);
   } finally {
     if (seq === loadSeq) {
       loading.value = false;
@@ -719,12 +747,7 @@ async function refreshPrices() {
   }
   priceNonce.value++;
   info.value = '正在从本地订单簿更新价格（不会连接任何外部网站）…';
-  await subscribePrices(
-    tickers.value,
-    ticker => prices.value[ticker] !== undefined,
-    () => disposed.value,
-    true,
-  );
+  await subscribePrices(tickers.value, () => disposed.value, true);
   if (disposed.value) {
     return;
   }
@@ -857,11 +880,7 @@ onMounted(() => {
   if (restoredFromCache.value) {
     // 首绘已由 setup 同步恢复的快照填充，无需再走 onMounted → refreshData 的路径：
     // 那条路会给 snapshot 赋新引用，导致整表二次重建。这里只补订本地订单簿价格。
-    void subscribePrices(
-      tickers.value,
-      ticker => prices.value[ticker] !== undefined,
-      () => disposed.value,
-    );
+    void subscribePrices(tickers.value, () => disposed.value);
     return;
   }
   if (planetInput.value.trim() !== '') {
@@ -1124,7 +1143,12 @@ onUnmounted(() => {
 
       <!-- ② 已建造等级（LR「人口」标签「建成」列；LR 不可用时回退 POPI） -->
       <div :class="$style.card">
-        <SectionHeader>已建造基建等级 · {{ builtBuildings.length }} / 14 类</SectionHeader>
+        <SectionHeader>
+          已建造基建等级 · {{ builtBuildings.length }} / 14 类 · 整星 {{ baseCount }} 座基地<span
+            v-if="baseCount !== siteCount"
+            >（自有 {{ siteCount }}）</span
+          >
+        </SectionHeader>
         <div :class="$style.buildingGrid">
           <div
             v-for="building in UPKEEP_BUILDINGS"

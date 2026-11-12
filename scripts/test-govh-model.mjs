@@ -126,7 +126,7 @@ const baseInput = () => ({
     ENGINEER: 10,
     SCIENTIST: 0,
   },
-  siteCount: 3,
+  baseCount: 3,
   currentFulfillment: {
     LIFE_SUPPORT: 1,
     SAFETY: 0.86,
@@ -321,7 +321,7 @@ check('solve：无人口 + 无基地 → 需求为 0，目标恒可达，推荐�
   const r = solve({
     ...baseInput(),
     population: zeroPop(),
-    siteCount: 0,
+    baseCount: 0,
     currentFulfillment: Object.fromEntries(NEEDS.map(n => [n, 1])),
     levels: { SST: 1 },
     prices: { DW: 1, OFF: 1, SUN: 1 },

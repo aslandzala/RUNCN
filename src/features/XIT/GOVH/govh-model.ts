@@ -266,8 +266,11 @@ export type FacilityStocks = Record<string, FacilityMaterialStocks>;
 export interface GovhInput {
   // 五类人口数量（来自 POPR 人口表）。
   population: Record<WorkforceLevel, number>;
-  // 玩家在该星球自有的基地数（来自本地 sitesStore；每座提供 50 safety + 50 health）。
-  siteCount: number;
+  // 整星基地总数（含其他公司的基地），每座给 safety / health 各提供 50。
+  // 必须用整星口径：POPR 的人口是全星球的，基础供给也是全星球共享的；
+  // 只用自有基地数会把供给算少一个数量级（PR #60 审查 P2）。
+  // 来源：星球聊天频道会员数（govh-base-count.ts），读不到时回退自有基地数。
+  baseCount: number;
   // 游戏已算好的六类需求满足度 0~1（来自 POPR 需求满足度表，含封顶）。仅用于展示「现状」。
   currentFulfillment: Record<Need, number>;
   // 游戏已算好的五类人口幸福度 0~1（来自 POPR 幸福行）。仅用于展示「现状」。
@@ -510,7 +513,7 @@ function buildOptions(input: GovhInput): SupplyOption[] {
 
 // 计算某组「待采购」选项下，各需求的最终提供量。
 // 基准：
-//   - 基地给 safety / health 各 50×siteCount；
+//   - 基地给 safety / health 各 50×baseCount（整星基地数，含他人基地）；
 //   - 维生由住房 / 星球肥沃度决定，基建物料改变不了它，因此用所选
 //     lifeBaseline（当前 POPR 现值或住房补齐后的 100%）作影子提供量；
 //     取 0 会让 4 层封顶把全部需求误压成 0%；
@@ -524,7 +527,7 @@ function computeProvided(
   lifeBaseline: number,
 ): Record<Need, number> {
   const provided = Object.fromEntries(NEEDS.map(need => [need, 0])) as Record<Need, number>;
-  const base = 50 * input.siteCount;
+  const base = 50 * input.baseCount;
   provided.SAFETY = base;
   provided.HEALTH = base;
   provided.LIFE_SUPPORT = needed.LIFE_SUPPORT * lifeBaseline;
