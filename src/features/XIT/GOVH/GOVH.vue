@@ -917,9 +917,9 @@ onUnmounted(() => {
     <template v-if="snapshot && result">
       <!-- ① 现状：本期 POPR 报告明细（无折线图） + 六类需求现状/预览，左右两栏 -->
       <div :class="$style.card">
-        <SectionHeader>现状与目标预览 · 100%</SectionHeader>
+        <SectionHeader>报告值 / 本方案预测 · 目标 100%</SectionHeader>
         <div :class="$style.sectionMeta">
-          本期人口报告明细（POPR 原生值，不含折线图） · 六类需求现状 → 补足后预览（按{{
+          本期人口报告明细（POPR 原生值，不含折线图） · 六类需求报告值 / 本方案预测（按{{
             lifeAssumption === 'full' ? '住房补齐后 100%' : '当前维生'
           }}预期，含封顶）
         </div>
@@ -968,7 +968,7 @@ onUnmounted(() => {
             </div>
           </div>
           <div :class="$style.reportColumn">
-            <div :class="$style.subTitle">六类需求 · 现状 → 补足后预览</div>
+            <div :class="$style.subTitle">六类需求 · 报告值 / 本方案预测</div>
             <div :class="$style.tableWrap">
               <table :class="[$style.table, $style.miniTable]">
                 <thead>
@@ -1046,9 +1046,14 @@ onUnmounted(() => {
             data-govh-assumption-cost>
             {{ assumptionCostText }}
           </div>
-        </div>
-        <div v-if="targetWarning" :class="$style.warn" data-govh-target-warning>
-          {{ targetWarning }}
+          <!-- 未达标告警并入说明区：色条 .notes::before 由此自动覆盖到它的底边，
+               2 行 / 3 行星球一致；告警块去掉水平 padding 与边框，文字左缘与上方对齐（R36）。 -->
+          <div
+            v-if="targetWarning"
+            :class="[$style.warn, $style.notesWarn]"
+            data-govh-target-warning>
+            {{ targetWarning }}
+          </div>
         </div>
       </div>
 
@@ -1641,6 +1646,18 @@ onUnmounted(() => {
   font-size: 11px;
   border-radius: 2px;
   margin: 6px 0;
+}
+/* 说明区内的未达标告警：并入 .notes 作第 3 块，色条 .notes::before 以 top/bottom
+   相对 .notes padding box，自动延伸到它的底边，2 行 / 3 行星球始终一致（R36）。
+   用 .notes .notesWarn 提高特异性（0,2,0）压过裸 .warn（0,1,0），不依赖样式表
+   源码顺序（R06）：去掉 8px 水平 padding 与 1px 边框，让文字左缘与上方两段注记
+   严格对齐；警示黄底 / 黄字沿用 .warn 既有值，此处只改盒模型、不新增裸色值（R01 / R18）。 */
+.notes .notesWarn {
+  margin: 5px 0 0;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  line-height: 1.45;
 }
 .materialToolbar {
   display: flex;

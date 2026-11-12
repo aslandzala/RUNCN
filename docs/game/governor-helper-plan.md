@@ -118,6 +118,35 @@ averagedHappiness = 0.4·h0 + 0.25·h1 + 0.2·h2 + 0.1·h3 + 0.05·h4   // 游�
 > GOVH v1 聚焦「补给→需求满足度→幸福度」这一段；人口增长/教育流动表作为**参考展示**，
 > 不参与采购求解（避免过度设计）。
 
+### 2.4 满足度双口径核对（2026-11-12，对照 oog Governor Helper 源码）
+
+用户以宜居星球 `ZV-307a`「六类需求表预览 < 现状」质疑计算是否正确。逐段读 oog 的
+`governor-render.js` / `governor-calc.js` / `governor-helper.js` / `infra-data.js` 后结论：
+**GOVH 公式与 oog 同源，逻辑正确；「预览 < 现状」是两个口径的必然结果，不是 bug。**
+
+oog 页面本身就有两套**互相独立、从不相减**的满足度：
+
+| oog 分区 | 公式 / 数据来源 | GOVH 对应 | 口径 |
+|---|---|---|---|
+| `Last Report Fulfillment` | 直接渲染 POPR `NeedFulfillment*` | 表格「现状」列 | 游戏当前**全星球**报告值，含其它玩家基地与部分填充存量的贡献 |
+| `Calculated Fulfillments` | `provided = siteCount×50（safety/health）+ 所选物料贡献`；`fulfillment = provided ÷ needed`（`needed = Σ 人口[tier]×权重`（跳过维生））；再套 4 层封顶 | 表格「预览」列 | 按**当前勾选方案独立重算**的预测值，只含自己的基地与所选/已填满物料 |
+
+- 两者公式逐项对齐：`needed` 跳过 `lifeSupport`；`provided.SAFETY/HEALTH = 50×siteCount`；
+  封顶 `comfort/culture = min(自身, min(safety, health))`、`education = min(自身, min(comfort, culture))`，
+  与 GOVH `computeNeeded` / `computeProvided` / `applyCapping` 完全一致。
+- oog 把二者放在**两个 section** 展示，从不做「现状 + 补给 = 预览」的减法；GOVH 原先把它们
+  并排在同一张表且标题写「现状 → 补足后预览」，才让多玩家星球上「预览低于现状」显得矛盾。
+  已改中性标题「报告值 / 本方案预测」（§6.2 / R36），计算一字未动。
+- ZV-307a 实测验算（宜居，维生恒 100%）：`provided.SAFETY = provided.HEALTH = 10,050 = 50×201`，
+  方案未选安全/健康物料；安全 `10,050/14,410 = 69.7%`（现状 80.6%）、健康 `10,050/16,602 = 60.5%`
+  （现状 70.1%）；健康 60.5% 是短板，把舒适 `min(86.5%, 60.5%)`、文化 `min(113.6%, 60.5%)`、
+  教育 `min(105.5%, 60.5%)` 全压到 60.5%。现状的 80.6% / 70.1% 含星球上其它玩家基地贡献，
+  这些进「现状」但不进「你一个人的方案预览」。同一套公式交给 oog、只选相同物料会得到同样结果。
+- **有意差异**（不是错误）：oog 人口预测里硬编码 `lifeSupport: 1.0`（假定恒 100%）；GOVH 对非宜居
+  用 POPR 当前维生做影子封顶基线（§2.2，更保守）。oog 有 target fulfillment 输入且跳过无报价材料；
+  GOVH 目标固定 100%（§5）、无报价显示「—」可手选、并额外读 POPID「下一次消耗 + 储备」抵扣一次性
+  采购、价格走本地订单簿（§5 差异表）。
+
 ---
 
 ## 3. 固化系数表（一次性，运行时零网络）
@@ -306,10 +335,10 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 ┌─ XIT GOVH · 管理的政府 [Shardonia b (VH-192b) ▾]  维生预期 [当前 ○ 补齐 ⦿]  [刷新数据] ┐
 │ ① 现状：五类人口幸福度卡片（只留等级 + 幸福度，人口数见下方报告明细） │
 │    先驱 98.9% │ 定居 20.0% │ 技术 63.2% │ 工程 46.6% │ 科学 20.0% │
-│    ┌ 本期人口报告（POPR 原生，无折线图）┐ ┌ 六类需求现状 → 补足后预览 ┐ │
-│    │ 项目/先驱/定居/职技工/工程师/科学家 │ │ 需求/需要/现状/预览/提供/封顶│ │
+│    ┌ 本期人口报告（POPR 原生，无折线图）┐ ┌ 六类需求 · 报告值 / 本方案预测 ┐ │
+│    │ 项目/先驱/定居/职技工/工程师/科学家 │ │ 需求/需要/现状/预览/提供      │ │
 │    │ 人口 变更 移民 教育（增/减）        │ │ 维生/安全/健康/舒适/文化/教育│ │
-│    │ 幸福 失业 待聘 + 报告#43/3天13小时前│ │ 原值含 "--"，预览含封顶态   │ │
+│    │ 幸福 失业 待聘 + 报告#43/3天13小时前│ │ 原值含 "--"，预测含封顶态    │ │
 │    │ 项目：重大行星假期 · 说明…          │ │                            │ │
 │    └────────────────────────────────────┘ └────────────────────────────┘ │
 │ ② 已建造等级（14 座，来自 POPI）                                │
@@ -371,6 +400,22 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
   **禁止**让 `.notes` 自带水平 `padding`/`border`（会让格宽比表格窄 10px、切列临界点错开，
   688–695px 一段出现表格两栏/注记一栏的错位），也**禁止**把成本对照留在栅格内当第 3 个 item
   （宽面板 `auto-fit` 会算出 3~4 列把注记拆散）。e2e 加 10 点宽度扫描断言锁死此行为。
+- 说明区未达标告警（第 3 块）：`targetWarning`（`data-govh-target-warning`）**必须**并入 `.notes`
+  内部作第 3 个子块，**禁止**留在 `.notes` 外当兄弟节点——否则 `.notes::before`（`top/bottom`
+  相对 `.notes` padding box）只罩住前 2 块，宜居但供给不足的星球（如 ZV-307a）会出现
+  「色条只覆盖 2 行、第 3 行告警脱落、文字右移 9px」。告警块挂 `[.warn, .notesWarn]`，
+  用 `.notes .notesWarn`（特异性 0,2,0，不靠源码顺序）覆盖裸 `.warn` 的盒模型：
+  `padding` 水平 0 / `border:0` / `border-radius:0` / 垂直 `margin`，
+  保留淡黄底 + 警示黄字（沿用既有值，不在组件规则新增裸色值）。这样 2 行 / 3 行星球色条
+  都自动覆盖全部说明块、各块文字左缘严格齐平（R34 / R36）。
+  验收：`govh-verify-notes.mjs` 在 VH-192b（2 行）/ ZV-307a（3 行）各断言色条覆盖、
+  文字左缘差 ≤1px、`warnInside`、块数、7 点宽度扫描；主 e2e 采集 `notes.barAndText`。
+- 六类需求标题中性化：卡片标题固定「报告值 / 本方案预测 · 目标 100%」，小标题「六类需求 · 报告值 /
+  本方案预测」。**禁止**再写「现状 → 补足后预览」「现状与目标预览」这类带箭头的增量暗示——
+  「现状」是 POPR `NeedFulfillment*` 报告值（全星球、含其它玩家基地贡献），「预览」是按当前勾选方案
+  独立重算 `provided/needed` 再套 4 层封顶的预测值，两者口径不同、并非「现状 + 补给 = 预览」，
+  宜居星球预览低于现状是正常重算结果（详见 §2.4 与 §9 风险）。oog Governor Helper 同样分
+  `Last Report Fulfillment` / `Calculated Fulfillments` 两个 section 展示，从不做两列相减。
 - 补给方案说明改为 2×2 等宽四行（`.planNotes` / `data-govh-plan-notes`），每行以 `标签：` 开头，
   去掉 `**` 星号、`-` 列表符与「单价」行；两列同宽、同行等高，窄面板靠 `minmax(0,1fr)`
   在格内换行不溢出（R35）。文案定稿：
@@ -481,6 +526,7 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 | P11 表格列顺序 / 选中态 / 边界 / 下拉收尾 | 前四列改 `建筑 / 覆盖需求 / 选 / 物料`；hover / selected 背景从 `<tr>` 下沉到「选」及其后 `<td>`，合并单元格不再变色；「覆盖需求」表头与合并单元格补 2px 右边界；两个 `<select>` 统一 11px、占位去掉星球数量；e2e 补 6 项断言（共 77 项）并加入 APEX 断连归因 | ✅ | 列顺序 / 着色阶段 `govh-verify-e2e.mjs` **74/74**，边界阶段 **75/75**（同期 `verify-govh-theme.mjs` 20/20、`govh-verify-dom.mjs` 13/13、`govh-verify-remount.mjs` 8/8、`govh-verify-cache-timing.mjs` 冷读 9525ms / 缓存 32ms / 强制 8212ms 全绿）；11px / 占位 2 项断言单项 PASS；`vue-tsc` + 完整构建链 + `test-govh-model.mjs` 26/26 通过；服务器恢复后**现场复跑 77/77 全绿**（DOM 13/13、theme 20/20、remount 8/8、cache 冷读 9805ms / 缓存 34ms / 强制 9008ms、0 外部请求 / 0 页面异常 / 0 意外重载、status / residual 正常、现场 theme=light / compact=on 恢复） |
 | P12 维生预期两档与预览区收尾 | `govh-model.ts` 新增 `LifeSupportAssumption` 与 `lifeBaseline` / `effectiveTarget` 派生，统一 Phase1 / Phase2 / `allTargetsMet` / 预览 / `achievable`；`NeedState` 拆 `fulfillment` / `displayNow`；`GOVH.vue` 表头新增两档按钮（默认「预计补齐 100%」、肥沃星球禁用）、预览格「当前 XX%」小字、两档成本对照、条件式告警；删「封顶」列，说明区移出右栏改同栅格双列 + 整宽成本行，「XX% 封顶」用 `--rp-skin-danger` 文字色强调 | ✅ | `vue-tsc` + 完整构建链 + `test-govh-model.mjs` **32/32**；`govh-verify-e2e.mjs` **88/88**（零 FAIL 零 WARN，含两档切换 / 双口径 / 成本差额 0 等价 / 5 列表 / 说明区栅格 / 警示色 `rgb(156,59,59)` 且背景透明）；`verify-govh-theme.mjs` **20/20**（三主题 n=275，low=0 / small=0 / faded=0，worstCR 5.63 / 5.05 / 6.18）；`govh-verify-dom.mjs` 13/13；`govh-verify-remount.mjs` 8/8；`govh-verify-cache-timing.mjs` 冷读 12460ms / 缓存 82ms / 强制 12759ms；status / residual 正常，现场 theme=light / compact=on / 0 残留窗口 |
 | P13 顶部控件收敛 | 删除「目标满足度 70% / 100%」，目标固定 100%（`target` 已从求解器移除，硬编码 100%）；维生预期与刷新/更新收成一排，动作按钮包进 `.actions` 且 `margin-left:auto` 靠右；e2e 改 89 项（删 70%↔100% 切换用例，加目标档移除 / 单排控件 / 动作组靠右） | ✅ | `vue-tsc` + 完整构建链 + `test-govh-model.mjs` **30/30**；`govh-verify-e2e.mjs` **89/89** 零 FAIL 零 WARN；`verify-govh-theme.mjs` **20/20**（三主题 n=274）；`govh-verify-dom.mjs` 13/13；`govh-verify-remount.mjs` 8/8；`govh-verify-cache-timing.mjs` 缓存 16 / 40ms、强制 12184 / 19342ms（冷读标记本次未采到）；status / residual 正常 |
+| P14 满足度口径核对 + 说明区 3 行对齐 | 逐段读 oog 四个 JS 核对满足度公式（§2.4），确认「预览 < 现状」是两个 section 的不同口径、逻辑正确；改中性标题三处（SectionHeader / subTitle / sectionMeta），不动计算；`targetWarning` 并入 `.notes`、新增 `.notes .notesWarn` 覆盖盒模型，色条自动覆盖 2/3 行、告警文字与上方左对齐（R36）；新增 `govh-verify-notes.mjs`（VH-192b 2 行 / ZV-307a 3 行 + 7 点宽度扫描），主 e2e 加 `notes.barAndText` 与中性标题断言 | ✅ | `vue-tsc` + 完整构建链 + `test-govh-model.mjs` **30/30**；`govh-verify-e2e.mjs` **95/95**（零 FAIL、`unexpectedNavigations=0`、`apexOffline=false`，新增说明区 2/3 行几何 + 中性标题 2 项）；**`govh-verify-notes.mjs` 13/13**（VH-192b 2 行 / ZV-307a 3 行各 6 项，色条覆盖 / 文字左缘 ≤1px / `warnInside` / 块数 3-2 / 7 点宽度 / 中性标题全 PASS，至少 1 个 3 行样本）；`verify-govh-theme.mjs` **20/20**（三主题 n=216/274/274，worstCR 6.11/5.63/6.18）；`govh-verify-dom.mjs` 13/13；`govh-verify-remount.mjs` 8/8；`govh-verify-cache-timing.mjs` 缓存 36ms / 强制 10004ms；现场 theme=light / compact=on / 0 测试标记 / `offline=false` / 0 残留测试窗口 |
 
 ---
 
@@ -537,6 +583,17 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
     面板同时给出两档成本差额与「游戏当前实际显示值」，**禁止**把预测值标成游戏现值。
     注意 `useTileState` 只在用户手动切档时持久化该键——老用户若曾手动选过 `full` 会沿用其选择，
     改默认值只影响从未切档的用户（含尚未使用 GOVH 的分享对象）。
+13. **「预览 < 现状」是两个口径，不是计算错误**：宜居星球（如 ZV-307a）维生恒 100%，但六类需求表的
+    「预览」可能低于「现状」——因为「现状」是 POPR `NeedFulfillment*` 的**全星球**报告值（含其它玩家
+    基地与部分填充存量），「预览」是按**当前政府自己的基地 + 勾选/已填满物料**独立重算并套 4 层封顶的
+    预测值。oog Governor Helper 同样把两者分 `Last Report Fulfillment` / `Calculated Fulfillments`
+    两个 section 展示、从不做两列相减（§2.4 逐项验算）。**禁止**把两者当「现状 + 补给 = 预览」的增量关系，
+    也不得为消除这个差值去改求解器 / 封顶 / 物料清单；已把标题改为中性「报告值 / 本方案预测」（R36）。
+    多玩家星球（有别的基地主在供基建）差值会更明显，属预期。
+14. **说明区行数随告警有无变化（2 行 / 3 行）**：`achievable=false` 时多出第 3 块未达标告警。告警块必须
+    并入 `.notes` 内部（不能是兄弟节点），否则左侧装饰条 `.notes::before` 只罩前 2 块；且告警块必须用
+    `.notes .notesWarn` 去掉裸 `.warn` 的 8px 水平 padding + 1px border，否则文字左缘比上面两行右移约
+    9px（R36）。`govh-verify-notes.mjs` 用 VH-192b（2 行）/ ZV-307a（3 行）+ 7 点宽度扫描锁死。
 
 ---
 
@@ -546,6 +603,10 @@ TIERS = [[LIFE_SUPPORT],[SAFETY,HEALTH],[COMFORT,CULTURE],[EDUCATION]]
 - 物料效率与治理指南：<https://oogcapitalmanagement.com/governing-mats/> 、<https://oogcapitalmanagement.com/posts/good-governance>
 - 计算示例（EUU）：<https://oogcapitalmanagement.com/governor-helper/?planet=EUU>
 - 固化系数抓取自：`/infra-data.js`（UPKEEP_BUILDINGS / HAPPINESS_WEIGHTS）、`/governor-calc.js`（computeCheapestFulfillment）、抓取日期 2026-11-10。
+- 满足度双口径核对（2026-11-12）：`/governor-render.js`（`renderNeedsTable` 读 POPR `NeedFulfillment*`）、
+  `/governor-calc.js`（`calculateRequiredNeeds` 跳过 `lifeSupport`）、`/governor-helper.js`
+  （`provided = siteCount×50 + 所选物料贡献`、4 层封顶 `satisfactions`、人口预测 `lifeSupport: 1.0`）。
+  结论「预览 < 现状」是两个 section 的不同口径，详见 §2.4。
 - 本地架构与实机验证记录：`docs/game/planetary-governance.md`、`prun-cdp/probe-popi-api.mjs`。
 
 > ⚠️ 上述 URL 仅供**开发期一次性查阅**。任何运行时代码不得 `fetch` 这些域名；
