@@ -42,12 +42,16 @@ import {
 
 const parameters = useXitParameters();
 const planetInput = useTileState('govh-planet', '');
-// 目标满足度固定 100%：面板定位「一个报告周期备足」，默认又假定住房补齐到 100%。
+// 目标满足度固定 100%：面板定位「一个报告周期备足」。
 // 模型层不再保留可调 target（求解器恒按 100% 目标 + 维生假设计算），减少二次采购的
 // 「省钱档」旋钮已从设计与求解器中移除，不存在「改 UI 即可恢复」的隐藏分支。
-// 维生预期：政府改不了住房，但可以选择按当前维生封顶备货，还是假定一个人口
-// 报告周期内住房补齐到 100% 提前备足 30 天。默认 full（缺口通常只是暂时的）。
-const lifeAssumption = useTileState<LifeSupportAssumption>('govh-life-assumption', 'full');
+// 维生预期：政府改不了住房，可以选择按当前维生封顶备货（current），还是假定一个
+// 人口报告周期内住房补齐到 100% 提前备足 30 天（full）。默认 current：非宜居星球
+// 的维生是全星球住房容量 ÷ 总人口的整体比值，住房由其他基地主控制、政府读不到也
+// 改不了；2026-11-12 实测 VH-192b 维生 86% 已持续多期、人口仍净增，缺口并非
+// 「一个报告周期内自愈」的暂时态，默认按乐观的 full 会系统性高估预览并过度提前备货。
+// full 档保留为可切换对照（确认住房即将补齐时再切）；曾手动切过档的用户沿用其 localStorage 选择。
+const lifeAssumption = useTileState<LifeSupportAssumption>('govh-life-assumption', 'current');
 // 命令参数 `XIT GOVH VH-192b` 预填星球（保留玩家输入的大小写）。
 if (parameters[0] && parameters[0].trim() !== '') {
   planetInput.value = parameters[0].trim();

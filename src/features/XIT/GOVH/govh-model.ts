@@ -566,7 +566,8 @@ function compareByEfficiency(a: number, b: number, direction: 'asc' | 'desc'): n
 
 // ── 主求解 ──────────────────────────────────────────────────────────────
 export function solve(input: GovhInput): GovhResult {
-  // 目标满足度恒为 100%：面板定位「一个报告周期备足」、默认假定住房补齐到 100%，
+  // 目标满足度恒为 100%：面板定位「一个报告周期备足」，维生按所选
+  // lifeSupportAssumption 派生基线（UI 默认 current，纯函数缺省 current），
   // 求解器不再接受任意 target，「省钱档 / 70%」旋钮已从设计与模型中移除。
   const target = 1;
   const assumption = input.lifeSupportAssumption ?? 'current';
