@@ -48,7 +48,7 @@ const tempMode = computed(() => burnMode.value || repairMode.value || govhMode.v
 // 每次点「比价」都要立刻反映最新勾选的临时清单。
 const repairQuote = computed(() => (repairMode.value ? repairQuoteRef.value : undefined));
 const repairNeeds = computed(() => repairQuote.value?.items ?? []);
-// GOVH 基建补给清单（按 ticker 合并的 30 天填充量）。
+// GOVH 基建补给清单（按 ticker 合并的满仓待补量）。
 const govhQuote = computed(() => (govhMode.value ? govhQuoteRef.value : undefined));
 const govhNeeds = computed(() => govhQuote.value?.items ?? []);
 const burnSite = computed(() =>

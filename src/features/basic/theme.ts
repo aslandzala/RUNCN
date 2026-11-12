@@ -119,6 +119,10 @@ const SKINS: Record<string, Skin> = {
       // CXPO「卖出」与其它 danger 按钮：浅红底 + 深红字（同为 1/3 色深）。
       '--rp-skin-danger-bg': '#f7eaea',
       '--rp-skin-danger-border': '#c98f8f',
+      // SFC 燃料条：R33 把大号 FLT 燃料条填充减半，SFC 里 30×9px 的两个小条
+      // 因此和轨道几乎同色。这里给 SFC 专用全深度色，只作用于 ShipFuel 作用域。
+      '--rp-skin-sfc-fuel-stl': '#33566f',
+      '--rp-skin-sfc-fuel-ftl': '#8a5a1c',
     },
     palette: {
       slate: {
@@ -218,6 +222,9 @@ const SKINS: Record<string, Skin> = {
       // CXPO「卖出」与其它 danger 按钮：浅红底 + 深红字（同为 1/3 色深）。
       '--rp-skin-danger-bg': '#f7e8e2',
       '--rp-skin-danger-border': '#c99a8c',
+      // SFC 燃料条专用全深度色（见 light 段注释 / CONTROL_CSS）。
+      '--rp-skin-sfc-fuel-stl': '#8a5a1c',
+      '--rp-skin-sfc-fuel-ftl': '#33566f',
     },
     palette: {
       slate: {
@@ -468,6 +475,26 @@ html[data-rp-theme] [data-rp-shpi-action="flight"] {
 html[data-rp-theme] [class*="TimeCell__iconSvg"] {
   color: var(--rp-skin-ink) !important;
   fill: currentColor !important;
+}
+/* SFC 顶部「燃料 1,500/1,500 / 2,000/2,000」的两个 30×9px 容量条：
+   R33 为给 XIT FLT 的大号燃料条减重，把 <progress> 主/次填充统一减半成浅色，
+   小条在浅轨道上几乎看不出填充与剩余。这里只在 ShipFuel 作用域恢复全深度
+   填充，并把轨道换成主题底色、边框换成 border-strong；FLT 大条与图表序列色
+   保持 R33 现状不变。三档 html[data-rp-theme] 抬特异性，压过引擎 CSSOM 生成的
+   ::-webkit-progress-value 覆盖与陶瓷白 buildComponentCss 的进度条规则（R06）。
+   颜色一律走色板变量，不在组件规则写裸色值（R01）；原样主题无前缀不生效（R21）。 */
+html[data-rp-theme][data-rp-theme][data-rp-theme] [class*="ShipFuel__container"] [class*="ProgressBar__progress"] {
+  background-color: var(--rp-skin-bg, transparent) !important;
+  border: 1px solid var(--rp-skin-border-strong, currentColor) !important;
+}
+html[data-rp-theme][data-rp-theme][data-rp-theme] [class*="ShipFuel__container"] [class*="ProgressBar__progress"]::-webkit-progress-bar {
+  background-color: var(--rp-skin-bg, transparent) !important;
+}
+html[data-rp-theme][data-rp-theme][data-rp-theme] [class*="ShipFuel__container"] [class*="ProgressBar__primary"]::-webkit-progress-value {
+  background-color: var(--rp-skin-sfc-fuel-stl, var(--rp-skin-ink, currentColor)) !important;
+}
+html[data-rp-theme][data-rp-theme][data-rp-theme] [class*="ShipFuel__container"] [class*="ProgressBar__secondary"]::-webkit-progress-value {
+  background-color: var(--rp-skin-sfc-fuel-ftl, var(--rp-skin-ink, currentColor)) !important;
 }
 html[data-rp-theme] * { scrollbar-color: var(--rp-skin-scroll-thumb) var(--rp-skin-bg); }
 `;

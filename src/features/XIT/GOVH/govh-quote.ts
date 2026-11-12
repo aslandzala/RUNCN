@@ -3,7 +3,7 @@
 // 作为 XIT CBUY 的第四种清单来源（CART / <星球>BURN / REPD / GOVH）。
 //
 // items 传「完整补给需求」：GOVH 求解出的每个选中 (building, material) 的
-// 30 天储备填充量，按 ticker 合并。仓库抵扣统一交给 XIT CBUY 计算，
+// 满仓待补量（POPID 两格填满），按 ticker 合并。仓库抵扣统一交给 XIT CBUY 计算，
 // 避免出现上游扣一遍、CBUY 再扣一遍的重复扣减。
 
 import { shallowRef } from 'vue';

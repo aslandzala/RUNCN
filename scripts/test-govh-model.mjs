@@ -148,7 +148,7 @@ const baseInput = () => ({
   ),
 });
 
-check('solve：VH-192b 类样例能给出推荐集合且成本低估合理', () => {
+check('solve：VH-192b 类样例能给出推荐集合且待补成本约为 30 天日成本', () => {
   const r = solve(baseInput());
   assert.ok(r.options.length > 0, '无选项');
   assert.ok(r.selected.size > 0, '推荐集为空');
@@ -160,9 +160,10 @@ check('solve：VH-192b 类样例能给出推荐集合且成本低估合理', () 
       `选中项 ${key} 不存在`,
     );
   }
-  // 无存量时净待补成本 = 日成本 × 30（同价 100）
+  // 无存量时净待补成本 ≈ 日成本 × 30（同价 100）。
+  // 满仓量是整数（小数日耗按游戏显示取整），因此允许一天成本的取整误差。
   assert.ok(
-    Math.abs(r.summary.fillCost - r.summary.dailyCost * 30) < 1e-6,
+    Math.abs(r.summary.fillCost - r.summary.dailyCost * 30) <= r.summary.dailyCost,
     `fill=${r.summary.fillCost} daily=${r.summary.dailyCost}`,
   );
   // 面板「提供量」列读的是封顶前原始提供量，必须为有限的非负数。
@@ -363,7 +364,7 @@ check('TIERS 分层正确', () => {
   );
 });
 
-check('基建存量：无存量时待补量 = 30 天毛量', () => {
+check('满仓量：无 POPID 容量时退回 30 天毛量（取整）', () => {
   const r = solve({ ...baseInput(), selected: new Set(['SST.DW']) });
   const option = r.options.find(o => o.key === 'SST.DW');
   assert.equal(option.grossFillAmount, 600);
@@ -371,6 +372,28 @@ check('基建存量：无存量时待补量 = 30 天毛量', () => {
   assert.equal(option.netFillAmount, 600);
   assert.equal(option.netFillCost, 60000);
   assert.ok(option.calculation.includes('待补 600'));
+});
+
+check('满仓量：取 POPID「下一次消耗 + 储备」两格容量，不再自算日耗 × 30', () => {
+  const r = solve({
+    ...baseInput(),
+    selected: new Set(['SST.DW']),
+    facilityStocks: {
+      SST: { DW: { nextConsumption: 0, reserve: 0, nextCapacity: 100, reserveCapacity: 600 } },
+    },
+  });
+  const option = r.options.find(o => o.key === 'SST.DW');
+  // 安全站 LV2：DW 日耗 20，储备 600（30 天）+ 下一周期 100（5 天）→ 满仓 700。
+  assert.equal(option.grossFillAmount, 700);
+  assert.equal(option.netFillAmount, 700);
+});
+
+check('满仓量：小数日耗不再产生小数点（6.67 × 30 = 200.1 → 200）', () => {
+  const r = solve({ ...baseInput(), selected: new Set(['INF.TUB']) });
+  const option = r.options.find(o => o.key === 'INF.TUB');
+  assert.equal(option.grossFillAmount, 200);
+  assert.ok(Number.isInteger(option.grossFillAmount), String(option.grossFillAmount));
+  assert.ok(!option.calculationCompact.includes('.'), option.calculationCompact);
 });
 
 check('基建存量：扣除“下一次消耗 + 储备”后得到净待补量', () => {
@@ -396,12 +419,12 @@ check('基建存量：计算过程列写明毛量、两项存量与待补量', (
     facilityStocks: { SST: { DW: { nextConsumption: 100, reserve: 200 } } },
   });
   const calculation = r.options.find(o => o.key === 'SST.DW').calculation;
-  for (const part of ['30天填充 600', '下一次消耗 100', '储备 200', '待补 300']) {
+  for (const part of ['满仓量 600', '下一次消耗 100', '储备 200', '待补 300']) {
     assert.ok(calculation.includes(part), `计算过程缺少「${part}」：${calculation}`);
   }
 });
 
-check('基建存量：存量超过 30 天毛量时待补量不为负', () => {
+check('基建存量：存量超过满仓量时待补量不为负', () => {
   const r = solve({
     ...baseInput(),
     selected: new Set(['SST.DW']),

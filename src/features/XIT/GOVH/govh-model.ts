@@ -17,8 +17,8 @@
 //   - 维生由住房 / 星球肥沃度决定，政府补给改变不了它；求解时按
 //     lifeSupportAssumption 选封顶基线（当前 POPR 现值 / 住房补齐后 100%），
 //     同一基线同时用于 Phase1 缺口、Phase2 达标判据与预览，避免口径分裂；
-//   - 已填满 30 天的设施存量自动计入，再逐需求按「当前短板需求的每 credit
-//     贡献」贪心选待采购物料，最后剔除冗余避免超买。
+//   - 已填满的设施存量（POPID 两格都满）自动计入，再逐需求按「当前短板需求的
+//     每 credit 贡献」贪心选待采购物料，最后剔除冗余避免超买。
 //     这是启发式近似，不是严格全局最优（见文档「求解流程」）。
 
 // ── 六类需求 & 分层 ────────────────────────────────────────────────────
@@ -242,10 +242,20 @@ export function getBuilding(ticker: string): UpkeepBuilding | undefined {
 
 // ── 输入 / 输出类型 ──────────────────────────────────────────────────────
 // 政府基建设施内部存量：来自 POPID 每个建筑的维护供给表，
-// 不是基地仓库库存。两个字段分别对应「下一次消耗」「储备」列的 progress 当前值。
+// 不是基地仓库库存。nextConsumption / reserve 对应「下一次消耗」「储备」两个
+// progress 的当前值；*Capacity 对应它们的 max（游戏给出的满格容量）。
+//
+// 两个仓位的真实语义（2026-11-12 只读实测 VH-192b SST LV2 与 AW-844a SDP LV1）：
+//   - 储备：容量恒为「日耗 × 30」，即 30 天缓冲；
+//   - 下一次消耗：容量恒为「日耗 × 该物料的消耗周期」（5 天或 15 天，按物料不同）。
+// 两者都要从基地仓库填进去，消耗完「下一次消耗」后由「储备」自动转移补位。
+// 所以「把这座建筑填满」= 填满两格 = 储备 30 天 + 一个完整周期，
+// 只按 30 天备货会把「下一次消耗」这格空着，建筑还差一个周期才真正满仓。
 export interface FacilityStock {
   nextConsumption: number;
   reserve: number;
+  nextCapacity?: number;
+  reserveCapacity?: number;
 }
 
 // 单座建筑内：物料 ticker -> 当前存量。
@@ -312,18 +322,24 @@ export interface SupplyOption {
   // 填满全部已建等级时的日耗 / 日成本。
   qtyPerDay: number;
   dailyCost: number;
-  // 30 天毛填充量 / 毛成本（未扣政府基建设施内部存量）。
+  // 满仓毛量 / 毛成本（未扣政府基建设施内部存量）。
+  // 满仓 = POPID「下一次消耗 + 储备」两格都填满；容量直接取两格 progress 的 max，
+  // 取不到时（旧缓存 / 解析失败）退回「日耗 × 30」的 30 天口径。
   grossFillAmount: number;
   grossFillCost: number;
   // 目标星球该建筑该物料在「下一次消耗 / 储备」两栏的当前存量，非基地仓库。
   stockNextConsumption: number;
   stockReserve: number;
   stockTotal: number;
-  // 实际待补量 / 待补成本 = max(0, 30 天毛量 − 上述两项存量)。
+  // 实际待补量 / 待补成本 = max(0, 满仓毛量 − 上述两项存量)。
   netFillAmount: number;
   netFillCost: number;
-  // 表格「计算过程」列：30天填充 − 下一次消耗 − 储备 = 待补。
+  // 完整计算过程（带中文标签）：满仓量 X − 下一次消耗 Y − 储备 Z = 待补 W。
+  // 保留给 CBUY 导出 / JSON 复制与模型单测；表格不再逐行展示这串长文字。
   calculation: string;
+  // 表格「计算」列用的紧凑算式：`300−50−100=150`。
+  // 表头与上方说明已交代各项含义，逐行只留数字与运算符，避免 20 行重复长文案。
+  calculationCompact: string;
   // 该 option 全部覆盖需求在实际等级下的总贡献 / 日成本（排序用；免费=Infinity，无报价=-1）。
   // Phase2 用它做粗排；Phase1 用 needEfficiency(option, need) 按当前短板需求精排。
   efficiency: number;
@@ -437,8 +453,15 @@ function buildOptions(input: GovhInput): SupplyOption[] {
       }
       const price = input.prices[ticker];
       const qtyPerDay = qtyPerDayPerLevel * builtLevel;
-      const grossFillAmount = qtyPerDay * 30; // reserve = 30 天量（pct 官方）
       const stock = input.facilityStocks?.[building.ticker]?.[ticker];
+      // 满仓量直接取 POPID 两格 progress 的 max（游戏按等级算好的真实容量）：
+      // 储备 = 30 天缓冲，下一次消耗 = 一个完整消耗周期，两格都填满才算满仓。
+      // 读不到容量时退回 30 天口径并取整——日耗带小数（如 RAD 0.47/天）时
+      // 「日耗 × 30」会算出 14.1，游戏自己显示的是取整后的 14。
+      const stockNextCapacity = safeStock(stock?.nextCapacity);
+      const stockReserveCapacity = safeStock(stock?.reserveCapacity);
+      const capacity = stockNextCapacity + stockReserveCapacity;
+      const grossFillAmount = capacity > 0 ? capacity : Math.round(qtyPerDay * 30);
       const stockNextConsumption = safeStock(stock?.nextConsumption);
       const stockReserve = safeStock(stock?.reserve);
       const stockTotal = stockNextConsumption + stockReserve;
@@ -471,9 +494,12 @@ function buildOptions(input: GovhInput): SupplyOption[] {
         stockTotal,
         netFillAmount,
         netFillCost,
-        calculation: `30天填充 ${formatQuantity(grossFillAmount)} − 下一次消耗 ${formatQuantity(
+        calculation: `满仓量 ${formatQuantity(grossFillAmount)} − 下一次消耗 ${formatQuantity(
           stockNextConsumption,
         )} − 储备 ${formatQuantity(stockReserve)} = 待补 ${formatQuantity(netFillAmount)}`,
+        calculationCompact: `${formatQuantity(grossFillAmount)}−${formatQuantity(
+          stockNextConsumption,
+        )}−${formatQuantity(stockReserve)}=${formatQuantity(netFillAmount)}`,
         efficiency,
         selected: false,
       });
@@ -488,7 +514,7 @@ function buildOptions(input: GovhInput): SupplyOption[] {
 //   - 维生由住房 / 星球肥沃度决定，基建物料改变不了它，因此用所选
 //     lifeBaseline（当前 POPR 现值或住房补齐后的 100%）作影子提供量；
 //     取 0 会让 4 层封顶把全部需求误压成 0%；
-//   - 已经填满 30 天（netFillAmount = 0）的物料不需要再买，但设施里已有，
+//   - 已经满仓（netFillAmount = 0）的物料不需要再买，但设施里已有，
 //     始终计入提供量，不受勾选状态影响。
 function computeProvided(
   input: GovhInput,
@@ -587,7 +613,7 @@ export function solve(input: GovhInput): GovhResult {
     selected = new Set(options.map(o => o.key));
   } else {
     // ── Phase 1：逐需求贪心（沿用 oog 两阶段思路）──────────────────────
-    // 免费基线（已填满 30 天的物料）由 computeProvided 自动计入，不需要采购，
+    // 免费基线（已满仓的物料）由 computeProvided 自动计入，不需要采购，
     // 因此不进入 selected；selected 始终表示「这次真正要买的物料」。
     selected = new Set();
     for (const need of INFRA_NEEDS) {

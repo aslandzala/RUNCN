@@ -2,12 +2,17 @@
 //
 // 数据来源全部是游戏原生窗口，无任何外部请求：
 //   - POPR <星球>：五类人口、五类幸福度、六类需求满足度（游戏已算好，含封顶）。
-//   - POPI <星球>：14 座基建建筑的「已建造」等级。
+//   - POPI <星球>：14 座基建建筑的「已建造」等级（仅当 LR 不可用时回退）。
 //   - POPID p-<星球> t-<建筑>：各建筑维护供给表里的「下一次消耗 / 储备」当前存量。
+//   - LR <星球>「人口」标签：14 座建筑的建成 / 当前 / 目标等级、上一周期贡献率、
+//     以及「需求满足度（上一周期）」原文本。
+//   - LR <星球>「项目」标签：当前项目 / 即办项目的类别、项目、说明与原样倒计时。
 //
 // 取数机制与底栏换汇 / BPC/BMAT 一致：用 showBuffer 开一个 hidden 窗口
 // （buffers.ts 会隐藏窗口与 dock 按钮，不闪），等原生表格 DOM 出现后解析，
-// closeWhen 满足时窗口自动关闭。不切视图、不抢前台、不下单。
+// closeWhen 满足时窗口自动关闭。不抢前台、不下单。LR 是例外：只在这个自建的
+// hidden 窗口内依序切「人口」「项目」两个标签读数据，读完即关，不改玩家自己的窗口。
+// 一次 LR 开窗同时替代了原来的 POPI 开窗，冷读少一个窗口。
 //
 // 解析只用语义类（C.Population.table / container）与表头/行首文本，不写死
 // CSS module hash；解析失败给出明确错误，由面板层降级提示，绝不连 FIO。
@@ -42,6 +47,13 @@ const NEED_HEADERS: Record<Need, string[]> = {
   CULTURE: [NEED_LABELS.CULTURE, 'Culture'],
   EDUCATION: [NEED_LABELS.EDUCATION, 'Education'],
 };
+// 本地化需求名 -> Need：LR「贡献（上一周期）」单元格里是「安全 - 98.7%」这类文本。
+const NEED_BY_LABEL = new Map<string, Need>(
+  NEEDS.flatMap(need => NEED_HEADERS[need].map(label => [label, need] as [string, Need])),
+);
+// LR 的两个标签（中文 / 英文界面都能命中）。
+const LR_POPULATION_TAB = /^(人口|Population)$/i;
+const LR_PROJECTS_TAB = /^(项目|Projects)$/i;
 // 行首标签：中文 / 英文（POPR 行首是「人口」「幸福」「需求满足度」）。
 const ROW_POPULATION = ['人口', 'Population'];
 const ROW_HAPPINESS = ['幸福', 'Happiness'];
@@ -57,10 +69,53 @@ export interface PopulationReportRow {
   values: Record<WorkforceLevel, string>;
 }
 
-// POPR 底部的管理方项目（可选，部分星球没有）。
+// POPR 底部的管理方项目（可选，部分星球没有）。LR 读取失败时面板降级显示这一行。
 export interface GovernanceProject {
   name: string;
   description: string;
+}
+
+// LR「项目」标签里一组项目的四个原生字段。
+// time 原样保留游戏倒计时文本（当期「结束于」如 "4天 19小时"、即办「开始于」，
+// 无项目时为 "--"），不换算成绝对日期、不重新格式化。
+export interface GovernanceProjectEntry {
+  category: string;
+  name: string;
+  description: string;
+  time: string;
+}
+
+export interface GovernanceProjects {
+  current?: GovernanceProjectEntry;
+  pending?: GovernanceProjectEntry;
+}
+
+// LR「人口」标签「基础设施项目」表的一行。
+// built  = 已建成等级（POPI「已建造」同源，决定建筑是否存在、是否开 POPID 窗口）；
+// current= 上一周期实际运行等级（目标降级 / 断供时会小于 built，求解必须用它，
+//          否则按 built 全额估算 provided 会系统性高估）；
+// target = 目标等级原文本（"max" 或数字）。2026-11-12 起**不再参与任何计算与展示**
+//          （用户裁定「目标等级那段没有意义」），只留作口径核对与验收对照，
+//          同时也是识别该表表头结构的判据之一。
+// contributions = 「贡献（上一周期）」按需求拆分的运行率 0~1（物料齐备度，不是满足度）。
+export interface InfraLevel {
+  ticker: string;
+  built: number;
+  current: number;
+  target: string;
+  contributions: Partial<Record<Need, number>>;
+}
+
+export interface InfraReport {
+  levels: InfraLevel[];
+  // 「需求满足度（上一周期）」六类原生文本，仅供口径核对与验收，不参与求解。
+  lastPeriodFulfillmentText: Partial<Record<Need, string>>;
+}
+
+// 一次 LR 开窗依序读到的两个标签（任一都允许读不到，面板分别降级）。
+export interface LrReadResult {
+  infra?: InfraReport;
+  projects?: GovernanceProjects;
 }
 
 export interface GovhSnapshot {
@@ -79,8 +134,15 @@ export interface GovhSnapshot {
   reportLabel?: string;
   // 管理方项目，POPR 底部可选区块。
   project?: GovernanceProject;
-  // 14 座建筑的已建造等级：ticker -> level。
+  // LR「项目」标签的当期 / 即办项目（可选；读不到时面板降级回上面的单行）。
+  projects?: GovernanceProjects;
+  // 14 座建筑的已建造等级：ticker -> level（LR「建成」列或回退 POPI）。
   levels: Record<string, number>;
+  // 求解用的有效运行等级：ticker -> level。来自 LR「当前」列；LR 不可用时缺省，
+  // 调用方回退到 levels（已建造），保持旧行为。
+  effectiveLevels?: Record<string, number>;
+  // LR「人口」标签的建成 / 当前 / 目标与上一周期贡献率（可选增强）。
+  infra?: InfraReport;
   // 各已建建筑内，每种物料的「下一次消耗 + 储备」当前存量。
   facilityStocks: FacilityStocks;
 }
@@ -88,6 +150,8 @@ export interface GovhSnapshot {
 const POPR_TIMEOUT = 12000;
 const POPI_TIMEOUT = 12000;
 const POPID_TIMEOUT = 9000;
+// 一次开窗要依序切两个标签并等各自 React 渲染，比单标签留更多余量。
+const LR_TIMEOUT = 15000;
 
 // 把 "1,995" / "86.0%" / "--" 解析为数字；无法解析返回 undefined。
 function parseNumber(text: string | undefined): number | undefined {
@@ -147,10 +211,13 @@ function findCreatedWindow(command: string, before: Set<HTMLElement>): HTMLEleme
 }
 
 // 等待窗口出现且表格数据就绪，然后解析；超时返回 undefined。
+// prepare 只用于 LR：开窗后切到「项目」标签。每轮轮询都会调用，实现必须幂等
+// （已激活就直接返回），否则 React 重绘期间会反复点击。POPR / POPI / POPID 不传。
 async function withBuffer<T>(
   command: string,
   timeout: number,
   parse: (window: HTMLElement) => T | undefined,
+  prepare?: (window: HTMLElement) => void,
 ): Promise<T | undefined> {
   const ready = ref(false);
   const deadline = Date.now() + timeout;
@@ -171,6 +238,7 @@ async function withBuffer<T>(
         if (text.includes('无效指令') || /invalid command/i.test(text)) {
           return undefined;
         }
+        prepare?.(window);
         const result = parse(window);
         if (result !== undefined) {
           return result;
@@ -345,6 +413,248 @@ function parseGovernanceProject(window: HTMLElement): GovernanceProject | undefi
   return name ? { name, description } : undefined;
 }
 
+// LR 标签只在这个 hidden 窗口内切换，不动玩家自己的窗口。
+// 标签是 <a class="Tabs__tab___...">，激活态多一个 Tabs__tabActive；
+// 用 a[class*="Tabs__tab"] 避开同样含 "Tabs__tab" 前缀的 Tabs__tabs 容器。
+function activeLrTab(window: HTMLElement): string {
+  const tab = window.querySelector('a[class*="Tabs__tabActive"]');
+  return cleanLabel(tab?.textContent ?? '');
+}
+
+function clickLrTab(window: HTMLElement, pattern: RegExp): void {
+  if (pattern.test(activeLrTab(window))) {
+    return;
+  }
+  const tabs = Array.from(window.querySelectorAll('a[class*="Tabs__tab"]')) as HTMLElement[];
+  const target = tabs.find(tab => pattern.test(cleanLabel(tab.textContent ?? '')));
+  target?.click();
+}
+
+// LR 项目标签的 DOM：SectionHeader「当前项目」/「即办项目」/「曾办项目」，
+// 每个项目区块是 4 个连续的 FormComponent 静态字段（类别 / 项目 / 说明 /
+// 结束于·开始于），字段值在 [class*="StaticInput__static"] 里。
+// 按固定顺序取值而不是按本地化标签匹配：中英文界面都能读，且不会把
+// 「曾办项目」表格混进来（遇到下一个 SectionHeader 即停）。
+function parseLrProjects(window: HTMLElement): GovernanceProjects | undefined {
+  const active = window.querySelector('a[class*="Tabs__tabActive"]');
+  if (!active || !/^(项目|Projects)$/i.test(cleanLabel(active.textContent ?? ''))) {
+    return undefined;
+  }
+  const content = window.querySelector('[class*="Tabs__content"]');
+  if (!content) {
+    return undefined;
+  }
+  const headers = Array.from(
+    content.querySelectorAll('[class*="SectionHeader__container"]'),
+  ) as HTMLElement[];
+  if (headers.length < 2) {
+    return undefined;
+  }
+  const readSection = (header: HTMLElement): GovernanceProjectEntry | undefined => {
+    const values: string[] = [];
+    let node = header.nextElementSibling as HTMLElement | null;
+    while (node && !node.matches('[class*="SectionHeader__container"]')) {
+      const value = node.querySelector('[class*="StaticInput__static"]');
+      if (value) {
+        values.push(cleanLabel(value.textContent ?? ''));
+      }
+      node = node.nextElementSibling as HTMLElement | null;
+    }
+    if (values.length < 4) {
+      return undefined;
+    }
+    return {
+      category: values[0],
+      name: values[1],
+      description: values[2],
+      time: values[3],
+    };
+  };
+  const current = readSection(headers[0]);
+  const pending = readSection(headers[1]);
+  return current || pending ? { current, pending } : undefined;
+}
+
+// 「贡献（上一周期）」单元格：<div class="LocalRules__container">
+//   <span><span>安全</span> - 98.7%</span><span><span>文化</span> - 100.0%</span>
+// 多需求建筑（ACA / EMC / WCE / PBH）会有多个 span。百分比是该建筑上一周期的
+// 物料齐备度 / 运行率，不是占总需求的比例，也不是满足度——只作展示对照，
+// 绝不乘进求解系数（一次性断供不是永久折损，乘进去会导致重复采购）。
+function parseLrContributions(cell: HTMLElement | undefined): Partial<Record<Need, number>> {
+  const result: Partial<Record<Need, number>> = {};
+  if (!cell) {
+    return result;
+  }
+  const container = cell.querySelector('[class*="LocalRules__container"]');
+  if (!container) {
+    return result;
+  }
+  for (const span of Array.from(container.children)) {
+    const text = cleanLabel(span.textContent ?? '');
+    const label = cleanLabel(span.querySelector('span')?.textContent ?? text.split('-')[0] ?? '');
+    const need = NEED_BY_LABEL.get(label);
+    const pct = text.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (need && pct) {
+      result[need] = Number(pct[1]) / 100;
+    }
+  }
+  return result;
+}
+
+// LR「人口」标签：两张原生表——「基础设施项目」（14 行：基础设施 / 建成 / 当前 /
+// 目标ⓘ / 贡献（上一周期））与「需求满足度（上一周期）」（六类原文本）。
+// 表头按中英文本定位列，不写死 CSS module hash；解析不出 14 行就返回 undefined，
+// 由 readGovernanceSnapshot 回退 POPI，绝不把半张表当成完整等级数据。
+function parseLrInfra(window: HTMLElement): InfraReport | undefined {
+  if (!LR_POPULATION_TAB.test(activeLrTab(window))) {
+    return undefined;
+  }
+  const tables = Array.from(window.querySelectorAll('table')) as HTMLTableElement[];
+  const infraTable = tables.find(table => {
+    const header = rowsOf(table)[0]?.textContent ?? '';
+    return (
+      /建成|Built/i.test(header) &&
+      /当前|Current/i.test(header) &&
+      /目标|Target/i.test(header) &&
+      /贡献|Contribution/i.test(header)
+    );
+  });
+  if (!infraTable) {
+    return undefined;
+  }
+  const header = cellsOf(rowsOf(infraTable)[0]);
+  const column = (pattern: RegExp) => header.findIndex(cell => pattern.test(cell));
+  const nameCol = column(/基础设施|Infrastructure|^Name$|^名称$/i);
+  const builtCol = column(/^建成$|^Built$/i);
+  const currentCol = column(/^当前$|^Current$/i);
+  const targetCol = column(/^目标$|^Target$/i);
+  const contributionCol = column(/贡献|Contribution/i);
+  if (nameCol < 0 || builtCol < 0 || currentCol < 0 || targetCol < 0 || contributionCol < 0) {
+    return undefined;
+  }
+
+  const levels: InfraLevel[] = [];
+  for (const row of rowsOf(infraTable).slice(1)) {
+    const cells = Array.from(row.children) as HTMLElement[];
+    const ticker = NAME_TO_TICKER.get(cleanLabel(cells[nameCol]?.textContent ?? ''));
+    if (!ticker) {
+      continue;
+    }
+    levels.push({
+      ticker,
+      built: parseNumber(cells[builtCol]?.textContent ?? undefined) ?? 0,
+      current: parseNumber(cells[currentCol]?.textContent ?? undefined) ?? 0,
+      target: cleanLabel(cells[targetCol]?.textContent ?? ''),
+      contributions: parseLrContributions(cells[contributionCol]),
+    });
+  }
+  if (levels.length === 0) {
+    return undefined;
+  }
+
+  // 「需求满足度（上一周期）」：只保留游戏原文本，供口径核对，不参与求解。
+  const lastPeriodFulfillmentText: Partial<Record<Need, string>> = {};
+  const fulfillmentTable = tables.find(table => {
+    const firstHeader = cellsOf(rowsOf(table)[0]);
+    return (
+      firstHeader.some(cell => NEED_BY_LABEL.has(cell)) &&
+      /需求满足度|Needs Fulfillment/i.test(table.textContent ?? '')
+    );
+  });
+  if (fulfillmentTable) {
+    const fHeader = cellsOf(rowsOf(fulfillmentTable)[0]);
+    const fColumns = new Map<Need, number>();
+    for (let i = 0; i < fHeader.length; i++) {
+      const need = NEED_BY_LABEL.get(fHeader[i]);
+      if (need) {
+        fColumns.set(need, i);
+      }
+    }
+    const fRow = rowsOf(fulfillmentTable)
+      .slice(1)
+      .find(row => /需求满足度|Needs Fulfillment/i.test(cellsOf(row)[0] ?? ''));
+    if (fRow) {
+      const cells = cellsOf(fRow);
+      for (const [need, col] of fColumns) {
+        lastPeriodFulfillmentText[need] = cells[col] ?? '--';
+      }
+    }
+  }
+  return { levels, lastPeriodFulfillmentText };
+}
+
+// 「项目」标签内容是否真的渲染出来：人口标签也有 SectionHeader，必须用项目专属标题
+// 区分，否则 React 切标签的那一轮会把旧内容误判为已就绪、丢掉项目数据。
+function isLrProjectsRendered(window: HTMLElement): boolean {
+  if (!LR_PROJECTS_TAB.test(activeLrTab(window))) {
+    return false;
+  }
+  const content = window.querySelector('[class*="Tabs__content"]');
+  if (!content) {
+    return false;
+  }
+  return Array.from(content.querySelectorAll('[class*="SectionHeader__container"]')).some(header =>
+    /当前项目|即办项目|曾办项目|Current Project|Pending Project|Past Project/i.test(
+      cleanLabel(header.textContent ?? ''),
+    ),
+  );
+}
+
+// 一次 LR 开窗依序读「人口」与「项目」两个标签。prepare 只负责切标签（幂等），
+// parse 按当前激活标签把数据存进闭包；两阶段都完成才返回。任一标签渲染不出来时
+// 软降级（对应字段 undefined），不拖死整次冷读、也不影响玩家自己的窗口。
+async function readLr(planet: string): Promise<LrReadResult | undefined> {
+  let infra: InfraReport | undefined;
+  let projects: GovernanceProjects | undefined;
+  let infraDone = false;
+  let projectsDone = false;
+  let populationWaits = 0;
+  let projectsWaits = 0;
+  const MAX_TAB_WAITS = 24; // 每轮 150ms，约 3.6s
+
+  return withBuffer<LrReadResult>(
+    `LR ${planet}`,
+    LR_TIMEOUT,
+    window => {
+      const active = activeLrTab(window);
+      if (!infraDone && LR_POPULATION_TAB.test(active)) {
+        infra = parseLrInfra(window) ?? infra;
+        if (infra || populationWaits >= MAX_TAB_WAITS) {
+          infraDone = true;
+        }
+      }
+      if (infraDone && !projectsDone && LR_PROJECTS_TAB.test(active)) {
+        if (isLrProjectsRendered(window) || projectsWaits >= MAX_TAB_WAITS) {
+          projects = parseLrProjects(window);
+          projectsDone = true;
+        }
+      }
+      if (!infraDone || !projectsDone) {
+        return undefined;
+      }
+      return { infra, projects };
+    },
+    window => {
+      const active = activeLrTab(window);
+      if (!infraDone) {
+        if (LR_POPULATION_TAB.test(active)) {
+          populationWaits++;
+        } else {
+          clickLrTab(window, LR_POPULATION_TAB);
+        }
+        return;
+      }
+      if (!projectsDone) {
+        if (LR_PROJECTS_TAB.test(active)) {
+          projectsWaits++;
+        } else {
+          clickLrTab(window, LR_PROJECTS_TAB);
+        }
+      }
+    },
+  );
+}
+
 // 建筑名 -> ticker（中文名 + 英文名双映射到固化表）。
 const NAME_TO_TICKER = new Map<string, string>(
   UPKEEP_BUILDINGS.flatMap(
@@ -400,6 +710,19 @@ function parseProgressValue(cell: Element | undefined): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
+// 读取同一列 progress 的满格容量（max）。
+// 游戏在这里给出按等级算好的真实容量：储备 = 日耗 × 30，下一次消耗 = 日耗 × 周期，
+// 直接用它当「满仓量」比自算「日耗 × 30」更准（日耗带小数时自算会多出 0.1 位）。
+function parseProgressCapacity(cell: Element | undefined): number {
+  const progress = cell?.querySelector('progress');
+  if (!progress) {
+    return 0;
+  }
+  const raw = progress.getAttribute('max') ?? (progress as HTMLProgressElement).max;
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 // 物料 ticker：优先语义类，回退到原生 ColoredIcon 类与首格文本（如 "DW315" → "DW"）。
 function materialTicker(row: HTMLTableRowElement): string {
   const bySemantic = C.ColoredIcon.label
@@ -450,6 +773,8 @@ function parsePopidStock(window: HTMLElement): FacilityMaterialStocks | undefine
     stocks[ticker] = {
       nextConsumption: parseProgressValue(cells[nextCol]),
       reserve: parseProgressValue(cells[reserveCol]),
+      nextCapacity: parseProgressCapacity(cells[nextCol]),
+      reserveCapacity: parseProgressCapacity(cells[reserveCol]),
     };
     parsed++;
   }
@@ -457,8 +782,11 @@ function parsePopidStock(window: HTMLElement): FacilityMaterialStocks | undefine
 }
 
 // 从游戏本地 DOM 读取某星球的治理现状。
-// 依次打开 POPR / POPI 与每个已建建筑的 POPID hidden 窗口；
+// 依次打开 POPR、LR（一次开窗读完「人口」+「项目」两个标签）、每个已建建筑的
+// POPID hidden 窗口；LR 读到基础设施表时不再开 POPI（少一个窗口），读不到才回退 POPI。
 // 关键数据失败返回 undefined（面板降级提示），绝不按 0 存量静默给出偏大清单。
+// LR 是可选增强：读不到「项目」时面板降级回 POPR 的单行项目；读不到「人口」时
+// effectiveLevels 缺省、求解回退已建造等级，保持旧行为。两者都不阻断主流程。
 export async function readGovernanceSnapshot(planet: string): Promise<GovhSnapshot | undefined> {
   // 星球编码保留玩家输入的原样（PrUn natural ID 大小写敏感，如 VH-192b）。
   const target = planet.trim();
@@ -471,10 +799,20 @@ export async function readGovernanceSnapshot(planet: string): Promise<GovhSnapsh
   if (!popr) {
     return undefined;
   }
-  const levels = await withBuffer(`POPI ${target}`, POPI_TIMEOUT, parsePopi);
+  const lr = await readLr(target);
+  const infra = lr?.infra;
+  // 「建成」列与 POPI「已建造」同源（14/14 实测一致），可直接替代 POPI 开窗。
+  const levels: Record<string, number> | undefined = infra
+    ? Object.fromEntries(infra.levels.map(entry => [entry.ticker, entry.built]))
+    : await withBuffer(`POPI ${target}`, POPI_TIMEOUT, parsePopi);
   if (!levels) {
     return undefined;
   }
+  // 「当前」列是上一周期实际运行等级：目标降级 / 断供时会小于建成等级，
+  // 求解必须按它算日耗与贡献，否则按建成等级全额估算会系统性高估 provided。
+  const effectiveLevels: Record<string, number> | undefined = infra
+    ? Object.fromEntries(infra.levels.map(entry => [entry.ticker, entry.current]))
+    : undefined;
 
   // 逐建筑打开 POPID 详情窗口。汇总命令 `POPID p-<planet>` 不带维护供给表，
   // 必须带 `t-<ticker>`；只读取已建建筑，避免无谓窗口。
@@ -495,5 +833,12 @@ export async function readGovernanceSnapshot(planet: string): Promise<GovhSnapsh
   if (built.length > 0 && Object.keys(facilityStocks).length === 0) {
     return undefined;
   }
-  return { ...popr, levels, facilityStocks };
+  return {
+    ...popr,
+    levels,
+    effectiveLevels,
+    infra,
+    facilityStocks,
+    projects: lr?.projects,
+  };
 }

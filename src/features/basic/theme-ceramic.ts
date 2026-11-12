@@ -88,6 +88,10 @@ export function buildCeramicSkin(): Skin {
       // 缺料/危险语义红（R27）：BRA「所需材料」不足的数量角标。
       '--rp-skin-danger': 'var(--rp-cc-status-danger-text)',
       '--rp-skin-action-done': 'var(--rp-cc-cat-6-text)',
+      // SFC 燃料条专用全深度色：直接取 cat-1 / cat-2 图表实色，
+      // 与 R33 的 --rp-cc-progress-*（减半浅色，供 FLT 大燃料条）分离。
+      '--rp-skin-sfc-fuel-stl': 'var(--rp-cc-cat-1-chart)',
+      '--rp-skin-sfc-fuel-ftl': 'var(--rp-cc-cat-2-chart)',
       '--rp-accent-rgb': hexToTriple(accent),
       '--rp-color-accent-primary': 'var(--rp-cc-accent-line)',
       '--rp-color-text': 'var(--rp-cc-text-primary)',

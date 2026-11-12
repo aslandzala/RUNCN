@@ -11,7 +11,6 @@ import PrunButton from '@src/components/PrunButton.vue';
 import MaterialIcon from '@src/components/MaterialIcon.vue';
 import Active from '@src/components/forms/Active.vue';
 import TextInput from '@src/components/forms/TextInput.vue';
-import SearchInput from '@src/components/forms/SearchInput.vue';
 import { useXitParameters } from '@src/hooks/use-xit-parameters';
 import { useTileState } from '@src/store/user-data-tiles';
 import { showBuffer } from '@src/infrastructure/prun-ui/buffers';
@@ -19,9 +18,8 @@ import { getEntityNaturalIdFromAddress } from '@src/infrastructure/prun-api/data
 import { sitesStore } from '@src/infrastructure/prun-api/data/sites';
 import { planetsStore } from '@src/infrastructure/prun-api/data/planets';
 import { materialsStore } from '@src/infrastructure/prun-api/data/materials';
-import { getMaterialName } from '@src/infrastructure/prun-ui/i18n';
 import { fixed0, fixed2, percent1 } from '@src/utils/format';
-import { readGovernanceSnapshot, type GovhSnapshot } from './govh-dom';
+import { readGovernanceSnapshot, type GovernanceProjectEntry, type GovhSnapshot } from './govh-dom';
 import { readCachedSnapshot, writeCachedSnapshot } from './govh-cache';
 import { useManagedGovernments } from './govh-governments';
 import { setGovhQuote } from './govh-quote';
@@ -72,7 +70,20 @@ const loading = ref(false);
 const error = ref<string | undefined>(undefined);
 const info = ref<string | undefined>(undefined);
 const disposed = ref(false);
-const search = ref('');
+// 管理方项目：LR「项目」标签的四个原生字段共用第一列竖表头，左右两列取当期 / 即办。
+// 顺序与 LR 原生 FormComponent 一致（类别 / 项目 / 说明 / 结束于·开始于）。
+const PROJECT_FIELDS = [
+  { key: 'category', label: '类别', clamp: false },
+  { key: 'name', label: '项目', clamp: false },
+  { key: 'description', label: '说明', clamp: true },
+  { key: 'time', label: '结束于 / 开始于', clamp: false },
+] as const;
+const PROJECT_SIDES = ['current', 'pending'] as const;
+type ProjectSide = (typeof PROJECT_SIDES)[number];
+
+function projectValue(side: ProjectSide, key: keyof GovernanceProjectEntry): string {
+  return snapshot.value?.projects?.[side]?.[key] ?? '—';
+}
 // 用户显式勾选集合；undefined = 用求解器推荐。
 const userSelected = shallowRef<Set<string> | undefined>(undefined);
 // 额外 additive 价格刷新 nonce：订单簿推送会触发 computed 重算，这里只用于手动刷新提示。
@@ -395,7 +406,9 @@ const solveBase = computed(() => {
     siteCount: siteCount.value,
     currentFulfillment: snap.fulfillment,
     currentHappiness: snap.happiness,
-    levels: snap.levels,
+    // LR「人口」标签给出上一周期实际运行等级；目标降级 / 断供时它小于已建造等级，
+    // 按建成等级算会高估 provided 与日耗。LR 不可用时回退已建造等级（旧行为）。
+    levels: snap.effectiveLevels ?? snap.levels,
     facilityStocks: snap.facilityStocks,
     prices: prices.value,
     materialsInfo: materialsInfo.value,
@@ -495,24 +508,48 @@ const builtBuildings = computed(() =>
   UPKEEP_BUILDINGS.filter(b => (snapshot.value?.levels[b.ticker] ?? 0) > 0),
 );
 
-// 物料表（可搜索），按性价比降序（solve 已排序，显式选择时按原价序）。
-const filteredOptions = computed(() => {
-  const options = result.value?.options ?? [];
-  const query = search.value.trim().toLowerCase();
-  if (query === '') {
-    return options;
+// LR「人口」标签：按需求聚合「贡献（上一周期）」运行率。
+// 同一需求有多座建筑时取最低值（短板口径，与 GOVH 逐需求求解一致）。
+// 这是物料齐备度，不是满足度：不参与求解、不与预览百分比相减，只作差距对照。
+const lastPeriodRates = computed(() => {
+  const infra = snapshot.value?.infra;
+  if (!infra) {
+    return [];
   }
-  return options.filter(option => {
-    const material = materialsStore.getByTicker(option.ticker);
-    const name = getMaterialName(material) ?? '';
-    return `${option.ticker} ${option.buildingName} ${option.building} ${name}`
-      .toLowerCase()
-      .includes(query);
+  return INFRA_NEEDS.map(need => {
+    const values = infra.levels
+      .map(level => level.contributions[need])
+      .filter((value): value is number => value !== undefined);
+    return {
+      need,
+      label: NEED_LABELS[need],
+      text: values.length > 0 ? formatPercent(Math.min(...values)) : '—',
+    };
   });
 });
 
+// 只提示、不改模型的一种 LR 口径：当前运行等级 < 建成等级时，求解已按当前等级
+// 校正，须让管理者知道，避免把「按当前等级算的供给」误当成「按建成等级算的」。
+// LR「目标」列不再做任何计算与展示（2026-11-12 用户裁定：目标等级那段没有意义）。
+const infraWarnings = computed(() => {
+  const infra = snapshot.value?.infra;
+  if (!infra) {
+    return [];
+  }
+  const warnings: string[] = [];
+  const downgraded = infra.levels.filter(level => level.built > 0 && level.current < level.built);
+  if (downgraded.length > 0) {
+    warnings.push(
+      `等级校正：${downgraded.length} 座建筑当前运行等级低于建成等级（${downgraded
+        .map(level => `${level.ticker} ${level.built}→${level.current}`)
+        .join('、')}），本方案按当前等级计算，避免高估供给。`,
+    );
+  }
+  return warnings;
+});
+
 // 物料表按建筑分组：buildOptions 按 UPKEEP_BUILDINGS 顺序逐建筑连续 push，
-// solve() 不重排 options，搜索只 filter 保序，故同一建筑的物料行始终相邻。
+// solve() 不重排 options，故同一建筑的物料行始终相邻。
 // 每行携带：是否组首、建筑列 / 覆盖需求列 rowspan（组首为组内行数，其余为 0 不渲染）、
 // 组序号、以及整组的覆盖需求并集（按 NEEDS 顺序去重）。建筑名与覆盖需求同组共享一个合并单元格。
 interface MaterialRow {
@@ -522,10 +559,12 @@ interface MaterialRow {
   groupIndex: number;
   groupNeeds: InfraNeed[];
   fillDisabled: boolean;
-  fillTitle: string;
+  // 合并列「待补量」里的紧凑算式：`700−0−0=` + 得数 `700`。
+  calcExpr: string;
+  calcResult: string;
 }
 const materialRows = computed<MaterialRow[]>(() => {
-  const options = filteredOptions.value;
+  const options = result.value?.options ?? [];
   const rows: MaterialRow[] = [];
   let groupIndex = -1;
   let previousBuilding: string | undefined;
@@ -554,23 +593,22 @@ const materialRows = computed<MaterialRow[]>(() => {
       groupIndex++;
       previousBuilding = option.building;
     }
+    // `300−50−100=150` 拆成「算式=」与「得数」，模板里给得数单独加粗加深。
+    const [calcExpr, calcResult] = option.calculationCompact.split('=');
     rows.push({
       option,
       buildingStart,
       buildingSpan: buildingStart ? (counts.get(option.building) ?? 1) : 0,
       groupIndex,
       groupNeeds: buildingStart ? orderedNeeds(option.building) : [],
+      calcExpr: calcExpr ?? '',
+      calcResult: calcResult ?? '',
       // 读数期间 POPID hidden 窗口可能与目标命令同名，禁用以免复用到正在关闭的窗。
       fillDisabled: loading.value || planetInput.value.trim() === '',
-      fillTitle: `打开 ${option.buildingName}（${option.building}）的 POPID 窗口，自行拖动维护供给滑块并点游戏原生「贡献」提交。GOVH 只负责打开窗口，不代填、不代提交。`,
     });
   }
   return rows;
 });
-
-function materialName(ticker: string): string {
-  return getMaterialName(materialsStore.getByTicker(ticker)) ?? ticker;
-}
 
 // 模板内百分比：0.86 → "86.0%"，与 fixed0/fixed2 同一本地化口径。
 function formatPercent(value: number): string {
@@ -959,12 +997,49 @@ onUnmounted(() => {
                   </tr>
                 </tbody>
               </table>
-            </div>
-            <div
-              v-if="snapshot.project"
-              :class="$style.projectLine"
-              :title="snapshot.project.name + '：' + snapshot.project.description">
-              项目：{{ snapshot.project.name }} · {{ snapshot.project.description }}
+              <!-- 管理方项目：留在左栏，且与上方「本期人口报告」表共用同一个
+                   tableWrap，保证左右边缘严格对齐（含出现横向滚动条时）。
+                   LR「项目」标签的当期 / 即办左右并排，四个字段共用第一列竖表头，
+                   倒计时原样显示。LR 读不到时降级回 POPR 底部的单行项目。 -->
+              <table
+                v-if="snapshot.projects && (snapshot.projects.current || snapshot.projects.pending)"
+                :class="$style.projectTable"
+                data-govh-projects>
+                <colgroup>
+                  <col :class="$style.projectLabelCol" />
+                  <col :class="$style.projectValueCol" />
+                  <col :class="$style.projectValueCol" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th :class="$style.projectCorner">管理方项目</th>
+                    <th>当期</th>
+                    <th>即办</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="field in PROJECT_FIELDS" :key="field.key">
+                    <th scope="row" :class="$style.projectRowHead">{{ field.label }}</th>
+                    <!-- 表内不再挂 title：说明列靠两行截断、其余字段 nowrap 省略，
+                         鼠标悬浮不再弹重复文案（用户明确要求）。 -->
+                    <td
+                      v-for="side in PROJECT_SIDES"
+                      :key="side"
+                      :class="field.clamp ? $style.projectClampCell : $style.projectValue">
+                      <div v-if="field.clamp" :class="$style.projectClamp">
+                        {{ projectValue(side, field.key) }}
+                      </div>
+                      <template v-else>{{ projectValue(side, field.key) }}</template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div
+                v-else-if="snapshot.project"
+                :class="$style.projectLine"
+                :title="snapshot.project.name + '：' + snapshot.project.description">
+                项目：{{ snapshot.project.name }} · {{ snapshot.project.description }}
+              </div>
             </div>
           </div>
           <div :class="$style.reportColumn">
@@ -974,25 +1049,15 @@ onUnmounted(() => {
                 <thead>
                   <tr>
                     <th>需求</th>
-                    <th title="需求量">需要</th>
-                    <th title="现状满足度">现状</th>
-                    <th title="按所选维生假设的补足后预测满足度">预览</th>
-                    <th title="提供量">提供</th>
+                    <th title="需求量" :class="$style.numCol">需要</th>
+                    <th title="现状满足度" :class="$style.numCol">现状</th>
+                    <th title="按所选维生假设的补足后预测满足度" :class="$style.numCol">预览</th>
+                    <th title="提供量" :class="$style.numCol">提供</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="need in NEEDS" :key="need">
-                    <td>
-                      <div :class="$style.needNameCell">
-                        <span>{{ NEED_LABELS[need] }}</span>
-                        <span
-                          v-if="need === 'LIFE_SUPPORT'"
-                          :class="$style.housingTag"
-                          data-govh-housing-tag>
-                          靠住房，补给无效
-                        </span>
-                      </div>
-                    </td>
+                    <td>{{ NEED_LABELS[need] }}</td>
                     <td :class="$style.numCell">{{ fixed0(result.needs[need].needed) }}</td>
                     <td :class="$style.numCell">{{ snapshot.fulfillmentText[need] }}</td>
                     <td :class="[$style.numCell, needClass(result.needs[need])]">
@@ -1057,7 +1122,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- ② 已建造等级（来自 POPI） -->
+      <!-- ② 已建造等级（LR「人口」标签「建成」列；LR 不可用时回退 POPI） -->
       <div :class="$style.card">
         <SectionHeader>已建造基建等级 · {{ builtBuildings.length }} / 14 类</SectionHeader>
         <div :class="$style.buildingGrid">
@@ -1065,8 +1130,34 @@ onUnmounted(() => {
             v-for="building in UPKEEP_BUILDINGS"
             :key="building.ticker"
             :class="$style.buildingCell">
-            <span :class="$style.buildingName" :title="building.enName">{{ building.name }}</span>
+            <span :class="$style.buildingName">{{ building.name }}</span>
             <span :class="$style.buildingLevel">{{ snapshot.levels[building.ticker] ?? 0 }}</span>
+          </div>
+        </div>
+        <!-- 上一周期运行率与本方案假设并列。两者口径不同（物料齐备度 vs 满足度，
+             后者还含维生封顶），不能摆成可相减的两列百分比：左侧是 LR 实测 chips，
+             右侧是假设说明，只让管理者看到「现实 / 理想」差距，不动求解逻辑。 -->
+        <div v-if="snapshot.infra" :class="$style.infraAudit" data-govh-infra-audit>
+          <div :class="$style.infraAuditCol">
+            <div :class="$style.infraAuditTitle">上一周期运行率 · LR 实测</div>
+            <div :class="$style.infraRates" data-govh-infra-rates>
+              <span
+                v-for="rate in lastPeriodRates"
+                :key="rate.need"
+                :class="$style.infraRate"
+                :data-govh-infra-rate="rate.need"
+                >{{ rate.label }} {{ rate.text }}</span
+              >
+            </div>
+          </div>
+          <div :class="$style.infraAuditCol">
+            <div :class="$style.infraAuditTitle">本方案假设</div>
+            <div :class="$style.infraAssumption" data-govh-infra-assumption>
+              物料备足后按 100% 运行计算；左侧为上一周期实测齐备度，仅作差距对照，不参与求解。
+            </div>
+          </div>
+          <div v-if="infraWarnings.length > 0" :class="$style.infraWarn" data-govh-infra-warn>
+            <div v-for="(warning, index) in infraWarnings" :key="index">{{ warning }}</div>
           </div>
         </div>
       </div>
@@ -1079,7 +1170,7 @@ onUnmounted(() => {
             勾选：选中即纳入方案，可随时手动调整。
           </div>
           <div :class="$style.planNote" data-govh-plan-note>
-            待补量：30 天填充量已扣除该建筑「下一次消耗 + 储备」内部存量；已填满的物料不再采购。
+            待补量：按「下一次消耗 + 储备」两格填满备货，已扣除该建筑现有存量。
           </div>
           <div :class="$style.planNote" data-govh-plan-note>
             推荐：本地实时价下的逐需求贪心近似，非严格全局最优。
@@ -1089,11 +1180,6 @@ onUnmounted(() => {
           </div>
         </div>
         <div :class="$style.materialToolbar">
-          <SearchInput
-            v-model="search"
-            name="govh-search"
-            :class="$style.search"
-            placeholder="搜索 ticker / 物料名 / 建筑" />
           <PrunButton dark inline @click="selectAll">全选</PrunButton>
           <PrunButton dark inline @click="selectNone">清空</PrunButton>
           <PrunButton dark inline @click="resetToRecommended">恢复推荐</PrunButton>
@@ -1102,17 +1188,16 @@ onUnmounted(() => {
           </span>
         </div>
         <div :class="$style.tableWrap">
-          <table :class="$style.table">
+          <table :class="[$style.table, $style.supplyTable]">
             <thead>
               <tr>
                 <th>建筑</th>
                 <th :class="$style.needsHeader">覆盖需求</th>
                 <th :class="$style.checkCol">选</th>
-                <th>物料</th>
+                <th :class="$style.materialCol">物料</th>
                 <th :class="$style.numCol">日耗</th>
-                <th :class="$style.numCol">30天填充</th>
-                <th :class="$style.numCol">待补量(30天)</th>
-                <th>计算过程</th>
+                <th :class="$style.numCol">满仓量</th>
+                <th :class="$style.numCol">待补量</th>
                 <th :class="$style.numCol">单价</th>
                 <th>来源</th>
                 <th :class="$style.numCol">日成本</th>
@@ -1122,7 +1207,7 @@ onUnmounted(() => {
             </thead>
             <tbody>
               <tr v-if="materialRows.length === 0">
-                <td colspan="13" :class="$style.empty">该星球没有已建基建，或没有匹配的物料。</td>
+                <td colspan="12" :class="$style.empty">该星球没有已建基建，或没有匹配的物料。</td>
               </tr>
               <tr
                 v-for="row in materialRows"
@@ -1137,7 +1222,6 @@ onUnmounted(() => {
                   v-if="row.buildingStart"
                   :rowspan="row.buildingSpan"
                   :class="$style.nameCell"
-                  :title="row.option.buildingName"
                   data-govh-col="建筑">
                   <div :class="$style.nameCellContent">
                     <div :class="$style.buildingName">
@@ -1149,7 +1233,6 @@ onUnmounted(() => {
                       inline
                       :class="$style.fillButton"
                       :disabled="row.fillDisabled"
-                      :title="row.fillTitle"
                       @click="openPopid(row.option.building)">
                       填充此建筑
                     </PrunButton>
@@ -1173,24 +1256,24 @@ onUnmounted(() => {
                     :class="$style.checkbox"
                     @change="toggleOption(row.option.key)" />
                 </td>
-                <td data-govh-col="物料">
+                <!-- 物料列只留图标：ticker 文字与悬浮说明已删，列宽随之收窄。 -->
+                <td :class="$style.materialCol" data-govh-col="物料">
                   <div :class="$style.materialCell">
                     <MaterialIcon :ticker="row.option.ticker" size="medium" />
-                    <span :title="materialName(row.option.ticker)">{{ row.option.ticker }}</span>
                   </div>
                 </td>
                 <td :class="$style.numCell" data-govh-col="日耗">{{
                   fixed2(row.option.qtyPerDay)
                 }}</td>
-                <td :class="$style.numCell" data-govh-col="30天填充">{{
+                <td :class="$style.numCell" data-govh-col="满仓量">{{
                   fixed0(row.option.grossFillAmount)
                 }}</td>
-                <td :class="$style.numCell" data-govh-col="待补量(30天)">{{
-                  fixed0(row.option.netFillAmount)
-                }}</td>
-                <td :class="$style.calcCell" data-govh-col="计算过程">{{
-                  row.option.calculation
-                }}</td>
+                <!-- 待补量与计算合并成一列：算式右对齐，等号后的得数加粗加深。
+                     内层 span 保留 data-govh-col="计算过程" 作为稳定验收钩子。 -->
+                <td :class="[$style.numCell, $style.calcCell]" data-govh-col="待补量">
+                  <span :class="$style.calcExpr" data-govh-col="计算过程">{{ row.calcExpr }}=</span
+                  ><span :class="$style.calcResult">{{ row.calcResult }}</span>
+                </td>
                 <td :class="$style.numCell" data-govh-col="单价">{{
                   row.option.price === undefined ? '—' : fixed2(row.option.price)
                 }}</td>
@@ -1230,7 +1313,7 @@ onUnmounted(() => {
             >
           </div>
           <div :class="$style.statCell">
-            <div :class="$style.statLabel">待补成本(30天)</div>
+            <div :class="$style.statLabel">待补成本(满仓)</div>
             <div :class="$style.statValue"
               >{{ result.summary.missingPrices > 0 ? '≈' : ''
               }}{{ fixed0(result.summary.fillCost) }}</div
@@ -1417,6 +1500,81 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 管理方项目（LR 当期 / 即办，共用竖列表头）。
+   位置：必须留在左栏，并与「本期人口报告」表放在同一个 .tableWrap 里，
+   两者共享同一宽度上下文（含横向滚动条出现的情形），左右边缘才严格对齐。
+   用户先后否掉「跨整宽放两栏下方」（三张表互相错位）与「放在左栏但不同容器」
+   （看着宽度没对齐），最终定为同容器。
+   宽度：固定 table-layout + 96px 首列 + 两个值列各 50%。**值列绝不能留空**
+   ——实测 Chromium 在 fixed layout 下对未指定宽度的 <col> 只给内容自然宽度，
+   不把 width:100% 的剩余空间分下去：只写首列时表格元素宽 415px，但三列只有
+   96+106+106=308px，右侧空出 107px，视觉上就是「右边缘往左缩进」。
+   calc()/max() 用在 <col> 上不生效，auto layout 也不铺满；只有显式 50% 能铺满
+   且保住首列 96px 不折行（实测列宽 96/160/160、右边差 0px）。
+   值列 min-width:0 / 溢出隐藏，长项目名与说明不会撑破容器，也不出现横向滚动条
+   （R29/R34：不用 viewport 媒体查询）。
+   高度：11px 字 / line-height 1.2 / 1px 内边距 / 说明最多 2 行，整块只有 5 行，
+   不另加标题行、分组留白或大 padding。首列必须容得下「结束于 / 开始于」不折行，
+   否则该行会被撑成两行（实测 76px 时整表 115px，96px 时约 94px）。 */
+.projectTable {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.projectLabelCol {
+  width: 96px;
+}
+.projectValueCol {
+  width: 50%;
+}
+.projectTable th,
+.projectTable td {
+  min-width: 0;
+  padding: 1px 4px;
+  border-bottom: 1px solid var(--rp-skin-border, currentColor);
+  color: var(--rp-skin-ink, currentColor);
+  text-align: left;
+  vertical-align: top;
+  overflow: hidden;
+}
+.projectTable thead th {
+  border-bottom-color: var(--rp-skin-border-strong, currentColor);
+}
+.projectTable thead th:not(:first-child) {
+  text-align: center;
+}
+.projectCorner {
+  font-weight: 600;
+}
+.projectRowHead {
+  font-weight: 400;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* 4 个竖表头（类别 / 项目 / 说明 / 结束于·开始于）文字垂直居中：
+   `.projectTable th` 是 (0,1,1) 的 vertical-align:top，用双类 (0,2,0) 覆盖；
+   值单元格仍 top，说明列占两行时标签落在行中线上，不再贴着行顶。 */
+.projectTable .projectRowHead {
+  vertical-align: middle;
+}
+.projectValue {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.projectClampCell {
+  white-space: normal;
+}
+.projectClamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 /* 说明区：外层只做定位 + 左侧装饰条，两栏栅格交给内层 .notesGrid。
    外层不再自带水平 padding / border——那会让格宽比 .reportGrid 窄 10px，
    auto-fit 切列临界点随之错开，688–695px 一段出现「表格两栏、注记一栏」的错位。
@@ -1534,9 +1692,35 @@ onUnmounted(() => {
   text-align: center;
   width: 28px;
 }
+/* 补给方案表专用（只挂在物料表上，不影响六类需求 / 本期人口报告表）：
+   - 表头水平居中，特异性 (0,2,2) 压过 `.table .numCol` 的右对齐；数据单元格仍右对齐；
+   - 水平内边距 6px→5px，整体略紧凑但保留余量，不贴字；
+   - 物料列只留图标、计算列只留紧凑算式，`width:1%` 让浏览器把这两列压到内容宽度，
+     剩余空间留给建筑 / 覆盖需求列，短内容不再白占一大截。 */
+.table.supplyTable thead th {
+  text-align: center;
+}
+.table.supplyTable th,
+.table.supplyTable td {
+  padding: 3px 5px;
+}
+.table.supplyTable .materialCol {
+  width: 1%;
+}
 .calcCell {
   color: var(--rp-skin-ink, currentColor);
   font-variant-numeric: tabular-nums;
+}
+/* 合并列「待补量」= 算式 + 得数：整段右对齐（numCell 已给）。
+   算式用次级文字色（仍走主题变量，原样主题回退 currentColor），
+   得数用主文字色 + 700 字重——颜色与字重同时加深，一眼落到结果上。 */
+.calcExpr {
+  color: var(--rp-skin-muted, currentColor);
+  font-weight: 400;
+}
+.calcResult {
+  color: var(--rp-skin-ink, currentColor);
+  font-weight: 700;
 }
 .checkbox {
   cursor: pointer;
@@ -1619,22 +1803,6 @@ onUnmounted(() => {
   color: var(--rp-skin-ink, currentColor);
   font-size: 11px;
 }
-.needNameCell {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-/* 维生行角标：装饰边框用强调色，文字走 ink（R02，禁止 accent 当文字色）。 */
-.housingTag {
-  display: inline-block;
-  padding: 0 3px;
-  border: 1px solid rgb(var(--rp-accent-rgb));
-  border-radius: 2px;
-  background: rgba(var(--rp-accent-rgb), 0.08);
-  color: var(--rp-skin-ink, currentColor);
-  font-size: 11px;
-}
 .sourceCell {
   color: rgb(148, 158, 166);
 }
@@ -1666,9 +1834,6 @@ onUnmounted(() => {
   gap: 6px;
   margin-bottom: 6px;
 }
-.search {
-  width: 180px;
-}
 .selectedCount {
   color: rgb(167, 176, 183);
   font-size: 11px;
@@ -1698,6 +1863,47 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--rp-skin-ink, currentColor);
+}
+
+/* LR 上一周期运行率对照：两栏等宽、窄面板靠 minmax(0,1fr) 换行（R29/R34）。
+   11px 正文（R09）、ink 文字色（R02）、opacity 显式归 1（R10）、不加底色，
+   不引入裸色值（R01）。告警跨两栏，避免撑出第三列。 */
+.infraAudit {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+  row-gap: 4px;
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--rp-skin-ink, currentColor);
+  opacity: 1;
+}
+.infraAuditCol {
+  min-width: 0;
+}
+.infraAuditTitle {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.infraRates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+.infraRate {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.infraAssumption {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.infraWarn {
+  grid-column: 1 / -1;
+  margin-top: 3px;
+  color: var(--rp-skin-ink, currentColor);
+  opacity: 1;
 }
 .metaLine {
   color: rgb(148, 158, 166);

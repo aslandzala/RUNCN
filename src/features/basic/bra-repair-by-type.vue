@@ -356,7 +356,7 @@ onBeforeUnmount(() => {
         <template v-else-if="armedTicker === group.ticker">
           确认维修 {{ group.count }} 栋
         </template>
-        <template v-else>{{ group.name }} ×{{ group.count }}</template>
+        <template v-else>{{ group.ticker }} ×{{ group.count }}</template>
       </button>
       <span v-if="message" :class="$style.hint">{{ message }}</span>
       <span
