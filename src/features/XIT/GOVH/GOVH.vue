@@ -51,6 +51,7 @@ const planetInput = useTileState('govh-planet', '');
 // 改不了；2026-11-12 实测 VH-192b 维生 86% 已持续多期、人口仍净增，缺口并非
 // 「一个报告周期内自愈」的暂时态，默认按乐观的 full 会系统性高估预览并过度提前备货。
 // full 档保留为可切换对照（确认住房即将补齐时再切）；曾手动切过档的用户沿用其 localStorage 选择。
+// current 档说明压到 ≤30 汉字，直接指顶部「预计补齐 100%」按钮，不再重复有效目标 / 二次采购 / 30 天。
 const lifeAssumption = useTileState<LifeSupportAssumption>('govh-life-assumption', 'current');
 // 命令参数 `XIT GOVH VH-192b` 预填星球（保留玩家输入的大小写）。
 if (parameters[0] && parameters[0].trim() !== '') {
@@ -450,13 +451,9 @@ const assumptionNoteParts = computed(() => {
     ];
   }
   return [
-    { text: '维生预期：按当前维生 ' },
+    { text: '默认按当前维生 ' },
     { text: `${ls} 封顶`, emphasis: true },
-    {
-      text: `备货，有效目标已压到 ${formatPercent(
-        r.summary.effectiveTarget,
-      )}。住房补齐后需二次采购；如需一次备足 30 天，可切到「预计补齐 100%」。`,
-    },
+    { text: '备货；也可按顶部「预计补齐 100%」备足供给。' },
   ];
 });
 
@@ -1023,23 +1020,26 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <!-- 说明区与上方双栏同栅格：两段注记左右对齐两栏表格，成本对照跨整宽收尾。
+        <!-- 说明区：两段注记左右对齐两栏表格，成本对照跨整宽收尾。
+             两栏只放两段注记（与 reportGrid 同为 2 项，杜绝 auto-fit 在宽面板拆成 3+ 列）；
+             成本对照移到栅格外的独立块，避免它作为第 3 个 item 撑出空列。
              不放在右栏表格脚下，避免右栏被文字撑高、左栏留白。 -->
         <div :class="$style.notes" data-govh-notes>
-          <div :class="$style.lifeNote" data-govh-life-hint>
-            <strong>「维生」</strong>需求：宜居星球恒为 100%，非宜居星球由
-            <strong>全星球住房容量</strong>决定（容量 ≥ 人口，达到100%）。基建补给无法改善这一项，
-            需由该星球入驻玩家自行新建 / 升级住房。
+          <div :class="$style.notesGrid" data-govh-notes-grid>
+            <div :class="$style.lifeNote" data-govh-life-hint>
+              <strong>「维生」</strong>：宜居恒 100%；非宜居按
+              <strong>全星球住房 ÷ 总人口</strong>，补给无效，须玩家建住房。
+            </div>
+            <div :class="$style.assumptionNote" data-govh-assumption-note
+              ><span
+                v-for="(part, index) in assumptionNoteParts"
+                :key="index"
+                :class="part.emphasis ? $style.lifeCap : undefined"
+                :data-govh-life-cap="part.emphasis ? '' : null"
+                >{{ part.text }}</span
+              ></div
+            >
           </div>
-          <div :class="$style.assumptionNote" data-govh-assumption-note
-            ><span
-              v-for="(part, index) in assumptionNoteParts"
-              :key="index"
-              :class="part.emphasis ? $style.lifeCap : undefined"
-              :data-govh-life-cap="part.emphasis ? '' : null"
-              >{{ part.text }}</span
-            ></div
-          >
           <div
             v-if="assumptionCostText"
             :class="[$style.assumptionNote, $style.noteCost]"
@@ -1069,14 +1069,19 @@ onUnmounted(() => {
       <!-- ③ 补给方案：全部物料自选 -->
       <div :class="$style.card">
         <SectionHeader>补给方案 · 全部物料自选</SectionHeader>
-        <div :class="$style.sectionMeta">
-          勾选物料即并入方案。待补量 = 30 天填充量 − 目标星球该建筑「下一次消耗 + 储备」内部存量；
-          已填满存量的物料自动计入，不再采购。推荐勾选 =
-          本地实时价格下的逐需求贪心近似（非严格全局最优），可手动调整。
-          单价统一来自本地订单簿实时买一价（与 BPC/BMAT/CBUY
-          同一口径），无报价显示「—」，可点「更新价格」订阅。
-          每座建筑名下的「填充此建筑」会打开该建筑的 POPID 原生窗口，滑块由你自己拖、
-          「贡献」由你自己点；GOVH 只开窗，不代填、不代提交。
+        <div :class="$style.planNotes" data-govh-plan-notes>
+          <div :class="$style.planNote" data-govh-plan-note>
+            勾选：选中即纳入方案，可随时手动调整。
+          </div>
+          <div :class="$style.planNote" data-govh-plan-note>
+            待补量：30 天填充量已扣除该建筑「下一次消耗 + 储备」内部存量；已填满的物料不再采购。
+          </div>
+          <div :class="$style.planNote" data-govh-plan-note>
+            推荐：本地实时价下的逐需求贪心近似，非严格全局最优。
+          </div>
+          <div :class="$style.planNote" data-govh-plan-note>
+            填充：点建筑下「填充此建筑」打开该建筑 POPID 原生窗口
+          </div>
         </div>
         <div :class="$style.materialToolbar">
           <SearchInput
@@ -1341,6 +1346,21 @@ onUnmounted(() => {
   font-size: 11px;
   margin: 2px 0 6px;
 }
+/* 补给方案说明：4 条规则按 2×2 等宽网格并排，去掉星号 / 列表符 / 单价行；
+   两列同宽、同行等高由 grid 保证，minmax(0,1fr) 让长文本在格内换行不溢出（R35）。 */
+.planNotes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+  row-gap: 4px;
+  margin: 2px 0 6px;
+  color: var(--rp-skin-ink, currentColor);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.planNote {
+  min-width: 0;
+}
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -1392,20 +1412,34 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* 说明区：与上方 reportGrid 用同一套 auto-fit + minmax（R29），窄面板自动落回单栏。
-   整块共用一条左侧装饰色条，两段注记左右对齐两栏表格，成本对照跨整宽收尾；
-   不把文字堆在右栏表格脚下，避免左右两栏底部参差。 */
+/* 说明区：外层只做定位 + 左侧装饰条，两栏栅格交给内层 .notesGrid。
+   外层不再自带水平 padding / border——那会让格宽比 .reportGrid 窄 10px，
+   auto-fit 切列临界点随之错开，688–695px 一段出现「表格两栏、注记一栏」的错位。
+   装饰条改用 ::before 画在卡片内边距里，不占内容盒宽度（R29 / R31）。 */
 .notes {
+  position: relative;
+  margin: 2px 0 4px;
+  padding: 3px 0;
+}
+.notes::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  background: rgb(var(--rp-accent-rgb));
+}
+/* 两段注记两栏：与 .reportGrid 完全同款列定义 / column-gap，且只有 2 个 item；
+   auto-fit 窄面板落回单栏、宽面板折叠空轨道锁成两栏，任何宽度都对齐上方表格。 */
+.notesGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
   gap: 2px 10px;
   align-items: start;
-  margin: 2px 0 4px;
-  padding: 3px 0 3px 8px;
-  border-left: 2px solid rgb(var(--rp-accent-rgb));
 }
 /* 维生来源提示 / 维生预期说明：文字走 ink（R02），11px 满足 R09，
-   opacity 显式归 1 避免被全局可读性兜底压淡（R10）。色条由 .notes 统一提供。 */
+   opacity 显式归 1 避免被全局可读性兜底压淡（R10）。色条由 .notes::before 提供。 */
 .lifeNote,
 .assumptionNote {
   color: var(--rp-skin-ink, currentColor);
@@ -1425,9 +1459,9 @@ onUnmounted(() => {
   color: var(--rp-skin-danger, currentColor);
   font-weight: 600;
 }
-/* 成本对照独占一整行，用细线与上方两段注记分开。 */
+/* 成本对照：外层 block 流里天然整宽（不再当 .notes 的 grid item，
+   否则宽面板 auto-fit 会把它算成第 3/4 列、撑散两栏注记）。细线与上方分开。 */
 .noteCost {
-  grid-column: 1 / -1;
   border-top: 1px solid var(--rp-skin-border, currentColor);
   margin-top: 2px;
   padding-top: 3px;
