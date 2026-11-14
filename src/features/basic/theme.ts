@@ -834,6 +834,15 @@ const STATUS_RE = /days(Warning|Missing)/;
 // animation 保持原样不动（见 R52）。
 const PULSE_RE = /effects__shadowPulse(Success|Secondary|Failure)/;
 
+// 游戏原生状态指示灯（航线执行 RTE 的航点 / 船只状态、各处 Status__ok /
+// warning / error 小圆点）：原生是「实色填充 + 同色发光」，主题引擎的通用
+// 降饱和会把实色收成 ≈ 背景的 0.13~0.16 透明淡色，深色自定义主题下几乎看不见。
+// 这里单独给回「实色填充 + 同色柔光」，颜色走各主题的状态语义色，浅 / 深主题都
+// 高对比。必须用 `\.Status__` 锚定：OrderStatus__* / ContractStatus__* /
+// AdStatus__* 是其它语义状态（多数为文字色 / 徽章），类名里也含「Status」但不带
+// 前置点号，不能误命中；Status__light 只是圆点底座（无底色），也不参与。
+const STATUS_DOT_RE = /\.Status__(ok|warning|error)/;
+
 function pulseOverride(selector: string, skin: Skin): Map<string, string> | null {
   const match = selector.match(PULSE_RE);
   if (!match) {
@@ -865,6 +874,30 @@ function statusOverride(selector: string, skin: Skin): Map<string, string> | nul
     // 不在色块前面加左侧彩色竖线：黄 / 红底色本身就是强调，再加一条 2px
     // inset 色条会显得多余。显式清空，压掉游戏原生可能带的内阴影。
     ['box-shadow', 'none'],
+  ]);
+}
+
+function statusDotOverride(selector: string): Map<string, string> | null {
+  const match = selector.match(STATUS_DOT_RE);
+  if (!match) {
+    return null;
+  }
+  // 用 --rp-skin-* 语义色而非 --rp-cc-status-*-text：前者在 light / paper（skin 模式）
+  // 与 ceramic / nebula / starforge（token 模式，别名指回 --rp-cc-*）里都定义，
+  // 后者只在 token 主题里有；light / paper 缺 --rp-cc-status-* 会让 var() 落到
+  // 初始值（透明），圆点直接消失。颜色保持语义一致（R04 单一来源）。
+  const color =
+    match[1] === 'ok'
+      ? 'var(--rp-skin-success)'
+      : match[1] === 'warning'
+        ? 'var(--rp-skin-warning)'
+        : 'var(--rp-skin-danger)';
+  return new Map<string, string>([
+    // 实色填充：原本的 0.13~0.16 透明淡色在深底上几乎看不见，换成状态语义实色。
+    ['background-color', color],
+    // 同色柔光：比原生 5px/1px 略收敛，让小圆点在浅 / 深底上都能被一眼看到，
+    // 又不至于糊成一团。颜色与填充同色，避免引入第二套色值。
+    ['box-shadow', `0 0 5px 1px ${color}`],
   ]);
 }
 
@@ -1015,7 +1048,11 @@ function collect(
       // 本身是 0x0 的发光点），被通用映射压淡后等于没有提示。
       const pulse = pulseOverride(rule.selectorText, skin);
       const status = pulse === null ? statusOverride(rule.selectorText, skin) : null;
-      const override = pulse ?? status;
+      // 状态指示灯最后兜底：它原本是实色 + 同色发光，通用降饱和会把它压成
+      // ≈ 背景的透明淡色，深色主题下几乎看不见，必须单独给回实色填充。
+      const statusDot =
+        pulse === null && status === null ? statusDotOverride(rule.selectorText) : null;
+      const override = pulse ?? status ?? statusDot;
       if (override !== null) {
         addToBucket(bucket, rule.selectorText, override);
       } else {
