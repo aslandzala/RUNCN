@@ -104,8 +104,14 @@ export const initialUserData = deepFreeze({
     theme: 'default' as UserData.ThemeId,
     themeFontSize: 'large' as 'standard' | 'large',
     themeBorders: 'theme' as 'theme' | 'on' | 'off',
-    // INV / SHPI 紧凑排列开关：默认原版，点击窗口右上按钮才开启，刷新后保持。
+    // INV / SHPI 紧凑排列的默认值：历史全局开关，现在只作为「没有单独设置过的
+    // 基地 / 船只」的回退值（详见下面的 invCompactScopes）。默认原版排列。
     invCompact: false,
+    // INV / SHPI 紧凑排列的按基地 / 船只状态（R51）：key 为 `INV:<基地 naturalId>` /
+    // `SHPI:<船注册码>`（直接取磁贴的 command + parameter）。同一个基地在独立窗口与
+    // XIT FB 面板里的磁贴共享同一状态，不同基地互不影响；未记录的 key 回落到
+    // 上面的 invCompact，存量用户升级后排列保持不变。
+    invCompactScopes: {} as Record<string, boolean>,
     // BLU：被隐藏的造船蓝图（存蓝图 naturalId，取不到时存 id）与
     // 「是否显示隐藏蓝图」开关。显隐固定持久化，只有手动点按钮才改变。
     hiddenBlueprints: [] as string[],
