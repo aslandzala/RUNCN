@@ -39,31 +39,37 @@ export const THEMES = [
   {
     id: 'default',
     label: '原样',
-    desc: '游戏原生深色界面 + 橙金强调色，等于不启用主题。',
+    desc: '游戏原生，不加修饰',
     mode: 'native',
   },
   {
     id: 'light',
     label: '浅色明亮',
-    desc: '浅底深字、低饱和：窗口、表格、按钮、物料图标、输入框统一重配色，彩色收敛为石板蓝；保留黄红异常标记，图片与涨跌含义不变。',
+    desc: '浅色明亮，低饱和',
     mode: 'skin',
   },
   {
     id: 'paper',
     label: '暖米纸',
-    desc: '参考暖色纸张界面：淡米白底、近白卡片、卡其细边框，赭金强调搭配小面积墨绿与暗红；低饱和暖调，黄红异常标记照旧保留。',
+    desc: '暖米纸张，赭金点缀',
     mode: 'skin',
   },
   {
     id: 'ceramic-colorful',
     label: '陶瓷白多彩',
-    desc: '暖陶瓷白底 + 近白卡片，8 个低饱和色相只用于分类标签、图表、图标、装饰线与状态提示；按钮/表单/表格按组件类型统一，正文、焦点态与禁用态经 WCAG 对比度校验。',
+    desc: '陶瓷暖白，八色分类',
     mode: 'token',
   },
   {
     id: 'nebula',
     label: '星海霓虹',
-    desc: '参考深空星海科幻界面：近黑深蓝底 + 半透明玻璃面板，青蓝霓虹（#35c4e8）作为唯一主强调色贯穿选中态/主按钮/边框发光；金/绿/红/紫/青绿/玫红/蓝/黄八类功能彩色各司其职、同类同色，信息编码不刺眼。',
+    desc: '深空霓虹，青蓝主色',
+    mode: 'token',
+  },
+  {
+    id: 'starforge',
+    label: '星铸工业',
+    desc: '深空工业，橙金主色',
     mode: 'token',
   },
 ] as const satisfies readonly ThemeDefinition[];

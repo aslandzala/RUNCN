@@ -154,6 +154,13 @@ export function buildCeramicSkin(): Skin {
       line: accent,
       lineSoft: accent,
     },
+    // 呼吸灯的独立三档色（R52）：从当前主题的 --rp-cc-pulse-* 读取，
+    // 陶瓷白与星海各自在 refined-prun.css 里定义，互不串色。
+    pulse: {
+      success: token('--rp-cc-pulse-success'),
+      secondary: token('--rp-cc-pulse-secondary'),
+      danger: token('--rp-cc-pulse-danger'),
+    },
     progress: {
       // 主/次填充用减半深度的专用 token（R33），与图表 cat-1/cat-2 实色分离。
       primary: token('--rp-cc-progress-primary'),
