@@ -1,0 +1,260 @@
+import { blueprintsStore } from '@src/infrastructure/prun-api/data/blueprints';
+import {
+  calculateTestFlight,
+  encodeAddress,
+  resolveEntity,
+  setTestFlightSample,
+} from '@src/infrastructure/prun-api/data/flight-test-collector';
+import {
+  ensureShipBlueprint,
+  shipFuelRemainingFor,
+  shipPerformanceFor,
+} from '@src/features/XIT/FTC/ftc-compute';
+import {
+  autoFuelGrid,
+  conditionFactor,
+  pickBestValueOption,
+  type FuelTradeoff,
+} from '@src/features/XIT/FTC/fuel-model';
+import { summarizeNativeFlightPlan } from '@src/features/XIT/FTC/route-planner';
+import { sleep } from '@src/utils/sleep';
+import type { ShipChainPlan } from './chain-allocation';
+import { legLoadWeight, percentAtLeast, type NativeWaypoint } from './native-route-plan';
+import { recordTransitSpeedSample } from './transit-speed-samples';
+
+// 从游戏滑块的最小档 5% 扫到 100%（1% 会被服务器拒绝，白跑一趟）。
+const fuelPercents = autoFuelGrid().map(fuel => Math.round(fuel * 100));
+// 试飞默认 50% 反应堆使用量（与旧 BTF 面板口径一致）；蓝图下限更高时用下限。
+const DEFAULT_REACTOR_USAGE = 0.5;
+// 服务器限速礼貌间隔（与 transit-f-scan 的批量采集一致）。
+const REQUEST_INTERVAL_MS = 250;
+// 连续这么多档被拒绝且一条样本都没有就停止扫描：载荷与消耗对燃料档位单调，
+// 最低档已经飞不出去时，更高档只会更费油。
+const REJECT_STOP = 2;
+
+// 性价比选点：扫完整档位（5%–100%）后逐档比较「多烧的燃料换回多少时间」，
+// 边际收益跌破首档一半就停（`pickBestValueOption`）——临近饱和段速度提升很小、
+// 燃料却继续涨，扫完才能看清整条曲线，所以这里不做提前停止。
+
+function chooseSample(samples: readonly FuelTradeoff[]) {
+  return pickBestValueOption([...samples]);
+}
+
+// 试飞计划的飞行质量：`ship.mass` 已含船上现有货物，只叠加**计划新增载重**；
+// payload 里为了让服务器算对试飞而加的现有货物不能重复算。
+function testFlightMass(ship: PrunApi.Ship, addedMass: number) {
+  return (ship.mass > 0 ? ship.mass : ship.operatingEmptyMass) + addedMass;
+}
+
+// 把试飞响应里的 TRANSIT 段转成 FTC 转移速度查询表的样本（q, aEff, v）：
+// 远端表只覆盖少数 aEff 行，采到该船自己的 aEff 行后，同船后续的 FTC 计算就不再判「超出可靠范围」。
+function recordTransitSpeedSamples(
+  performance: ReturnType<typeof shipPerformanceFor>,
+  ship: PrunApi.Ship,
+  mass: number,
+  tank: number,
+  fuelPercent: number,
+  plan: PrunApi.FlightPlan,
+) {
+  const engine = performance.stlEngineOption;
+  if (engine === undefined || !(tank > 0)) {
+    return;
+  }
+  if (!(mass > 0) || !(ship.operatingEmptyMass > 0) || !(ship.acceleration > 0)) {
+    return;
+  }
+  const aEff = (ship.acceleration * ship.operatingEmptyMass) / mass;
+  const q = 0.98 * tank * Math.min(fuelPercent / 100, 0.5);
+  // 服务器试飞的速度已经含船况惩罚；查询表存健康船速度（模型在算时长时才乘
+  // conditionFactor），所以这里要**除掉**惩罚还原成健康船速度 —— 乘以 cond 会让
+  // 后续估算把惩罚算两次（40% 船况的 2.78h 会被放大成 11h）。
+  const cond = conditionFactor(ship.condition);
+  if (!(cond > 0)) {
+    return;
+  }
+  for (const segment of plan.segments) {
+    if (segment.type !== 'TRANSIT' || segment.stlDistance === null) {
+      continue;
+    }
+    const seconds = (segment.arrival.timestamp - segment.departure.timestamp) / 1000;
+    // 太短的段相对噪声大（秒级抖动就有百分之几误差），不进表。
+    if (!(seconds >= 60) || !(segment.stlDistance > 1000)) {
+      continue;
+    }
+    recordTransitSpeedSample(engine, q, aEff, segment.stlDistance / seconds / cond);
+  }
+}
+
+export interface BtfLegFuel {
+  // 实测平衡点的燃料消耗百分比。
+  fuel: number;
+  // 试飞时实际使用的反应堆使用量。
+  reactor?: number;
+  // 该档位下服务器试飞的总时长（小时），供 FLEET「飞行」列直接展示。
+  hours: number;
+  // 该档位消耗的 STL/FTL 燃料（用于后续航段递减油量）。
+  stlFuel: number;
+  ftlFuel: number;
+}
+
+export interface BtfFuelResult {
+  // 段序号（1 起）→ 实测档位。
+  legs: Map<number, BtfLegFuel>;
+  // 单段失败原因。
+  warnings: string[];
+}
+
+// 缺服务器原生记录的航段改用 BTF 实测：直接走 socket 发 SHIP_FLIGHT_CALCULATE_TEST_FLIGHT
+// （与 BTF 面板同一个服务器计算），不开窗口、不碰滑块——载重/燃料/反应堆都是请求参数。
+// 每档一次请求，边际收益耗尽即停；响应里的 SHIP_FLIGHT_MISSION 还会自动写入原生 STL 段记录。
+export async function measureNativeRouteFuel(
+  candidate: ShipChainPlan,
+  waypoints: readonly NativeWaypoint[],
+  legs: readonly number[],
+  signal: AbortSignal,
+  onProgress: (status: string) => void,
+  // 起飞油量：多段航线的后续段要用上一段剩下的油（不补油时），缺省按罐容量。
+  fuel?: { stlFuel?: number; ftlFuel?: number },
+): Promise<BtfFuelResult> {
+  const ship = candidate.ship.ship;
+  signal.throwIfAborted();
+  await ensureShipBlueprint(ship);
+  const blueprint = blueprintsStore.getByNaturalId(ship.blueprintNaturalId);
+  if (blueprint === undefined) {
+    throw new Error(`未获取到蓝图 ${ship.blueprintNaturalId}，无法试飞。`);
+  }
+  // 试飞的油量基准默认用「罐容量」：航线在出发地补满时每段都是满罐起飞；
+  // 但多段之间没有补油时由调用方传入当前剩余油量。
+  // 读不出来时（`undefined`）**不传**该字段：覆盖成 undefined 会连
+  // `calculateTestFlight` 的基线默认值一起顶掉，回退成 0 又会让跨星系航线
+  // 每一档都因跃迁没油被服务器拒绝。STL 还有蓝图容量可用，FTL 没有第二个来源。
+  const performance = shipPerformanceFor(ship);
+  const fuelNow = shipFuelRemainingFor(ship);
+  const stlFuel =
+    fuel?.stlFuel ?? (fuelNow.stlCap > 0 ? fuelNow.stlCap : performance.stlFuelCapacity);
+  // 容量读不出来时余量也可能是 0（无油罐数据），那种 0 不是「真空罐」，不能拿去试飞。
+  const ftlTank = fuelNow.ftlCap > 0 ? fuelNow.ftlCap : fuelNow.ftlRemaining;
+  const ftlFuel = fuel?.ftlFuel ?? (ftlTank > 0 ? ftlTank : undefined);
+  // 反应堆使用量：默认 50%，但不能低于蓝图下限（高下限船会直接拒绝低反应堆的计划）。
+  // 试飞与写入必须用**同一个**百分比：向下取整会让写进航线的档位低于下限。
+  const reactorPercent = percentAtLeast(DEFAULT_REACTOR_USAGE, performance.minReactorUsage ?? 0);
+  const reactorUsage = reactorPercent / 100;
+  const legCount = waypoints.length - 1;
+  const codes = new Map<string, string>();
+  const measured = new Map<number, BtfLegFuel>();
+  const warnings: string[] = [];
+
+  const addressCode = async (location: string) => {
+    const key = location.trim().toUpperCase();
+    const cached = codes.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const address = await resolveEntity(location);
+    const code = address === undefined ? undefined : encodeAddress(address);
+    if (code === undefined) {
+      throw new Error(`无法解析 ${location} 的地址。`);
+    }
+    codes.set(key, code);
+    return code;
+  };
+
+  for (const index of legs) {
+    const from = waypoints[index - 1]!.location;
+    const to = waypoints[index]!.location;
+    try {
+      signal.throwIfAborted();
+      const origin = await addressCode(from);
+      const destination = await addressCode(to);
+      // 载重 = 计划舱载 + 船上现有货物：规划器的 loadOnDeparture 从空舱起算
+      // （现有货物只用来压减可用舱容），而服务器试飞只认 payload 参数。
+      const plannedLoad = Math.ceil(legLoadWeight(candidate.plan, index, legCount));
+      const payload = plannedLoad + (candidate.ship.cargoStore?.weightLoad ?? 0);
+      // 这份样本按多少质量测的：FTC 之后复用同一份计划时要按它换算，不能按飞船当前质量。
+      const sampleMassT = testFlightMass(ship, plannedLoad);
+      const samples: FuelTradeoff[] = [];
+      const rejectStatuses = new Map<string, number>();
+      let timeouts = 0;
+      let rejected = 0;
+      let stopped = false;
+      for (const percent of fuelPercents) {
+        signal.throwIfAborted();
+        onProgress(
+          `BTF ${ship.blueprintNaturalId} · ${index}/${legCount} · ${from} → ${to} · ${percent}%`,
+        );
+        const plan = await calculateTestFlight(origin, destination, blueprint.id, 15000, {
+          fuelUsageFactor: percent / 100,
+          payload,
+          condition: ship.condition,
+          ...(stlFuel === undefined ? {} : { stlFuel }),
+          ...(ftlFuel === undefined ? {} : { ftlFuel }),
+          reactorUsageFactor: reactorUsage,
+          landing: true,
+          // 与游戏自己写入航点时的默认偏好一致（实采 SHIP_ROUTES_EDIT_WAYPOINT：
+          // ftlPreference LEAST_JUMPS、useGateways true）——试飞要走和航线一样的路线。
+          preferences: { ftlPreference: 'LEAST_JUMPS', useGateways: true },
+        });
+        if (plan === undefined) {
+          timeouts++;
+          continue;
+        }
+        if (plan.status === 'OK') {
+          const summary = summarizeNativeFlightPlan(plan);
+          // 出发油量未知时不采样本：转移速度表按 Q = 0.98×罐×min(f,0.5) 键控，
+          // 猜一个罐容量会污染后续所有校准。
+          if (stlFuel !== undefined) {
+            setTestFlightSample(plan, { massT: sampleMassT, stlFuel, condition: ship.condition });
+            recordTransitSpeedSamples(performance, ship, sampleMassT, stlFuel, percent, plan);
+          }
+          if (summary.totalSeconds > 0) {
+            samples.push({
+              fuel: percent,
+              reactor: reactorPercent,
+              totalHours: summary.totalSeconds / 3600,
+              stlFuel: summary.stlFuel,
+              ftlFuel: summary.ftlFuel,
+            });
+          }
+        } else {
+          rejected++;
+          rejectStatuses.set(plan.status, (rejectStatuses.get(plan.status) ?? 0) + 1);
+          if (samples.length === 0 && rejected >= REJECT_STOP) {
+            stopped = true;
+            break;
+          }
+        }
+        await sleep(REQUEST_INTERVAL_MS);
+      }
+      if (timeouts > 0) {
+        warnings.push(`${from} → ${to}：${timeouts} 档试飞无响应（已跳过）。`);
+      }
+      if (rejected > 0) {
+        const statuses = [...rejectStatuses]
+          .map(([status, count]) => `${status} ×${count}`)
+          .join('、');
+        warnings.push(
+          `${from} → ${to}：${rejected} 档试飞被服务器拒绝（${statuses}）` +
+            (stopped ? '，已停止扫描' : samples.length > 0 ? '，不影响已测档位' : '') +
+            '。',
+        );
+      }
+      const best = chooseSample(samples);
+      if (best === undefined) {
+        throw new Error('试飞没有可用方案。');
+      }
+      measured.set(index, {
+        fuel: best.fuel,
+        reactor: reactorPercent,
+        hours: best.totalHours,
+        stlFuel: best.stlFuel,
+        ftlFuel: best.ftlFuel,
+      });
+    } catch (err) {
+      if (signal.aborted) {
+        throw err;
+      }
+      warnings.push(`${from} → ${to}：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { legs: measured, warnings };
+}
