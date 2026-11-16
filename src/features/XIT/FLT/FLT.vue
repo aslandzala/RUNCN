@@ -7,6 +7,7 @@ import { getInvStore } from '@src/core/store-id';
 import { showBuffer } from '@src/infrastructure/prun-ui/buffers';
 import LoadingSpinner from '@src/components/LoadingSpinner.vue';
 import { shipConditionLevel } from '@src/utils/ship-condition';
+import { acquireRouteSpin, releaseRouteSpin } from './route-spin';
 
 // Status arrow icons (inlined from deleted ship-status-icons.ts). Arrow per
 // flight segment type; stationary (⦁) when docked or no active flight.
@@ -93,20 +94,15 @@ const rows = computed(() => {
 // 燃料列（油条）显示开关。
 const showFuel = ref(true);
 
-// 旋转箭头圆圈：不用 CSS transform 动画。合成层动画只更新纹理，某些窗口状态下
-// 计算样式一直在变、屏幕却不重画。改为定时改写 SVG 内部 <g> 的 transform 呈现属性，
-// 由主线程光栅化重绘；停靠（data-flying=false）时不再更新，停在当前角度。
-const spinStart = performance.now();
-const spinTimer = setInterval(() => {
-  const deg = (((performance.now() - spinStart) / 2400) * 360) % 360;
-  for (const layer of document.querySelectorAll('[data-route-spin]')) {
-    if (layer.getAttribute('data-flying') === 'true') {
-      layer.setAttribute('transform', `rotate(${deg.toFixed(1)} 12 12)`);
-    }
-  }
-}, 33);
+// 旋转箭头圆圈由共享单例驱动（见 route-spin.ts）：所有 XIT FLT 实例共用一个定时器，
+// 停靠（data-flying=false）时不更新角度，原地停住；系统开启「减少动画」时同样停住。
+acquireRouteSpin();
+onBeforeUnmount(releaseRouteSpin);
 
-onBeforeUnmount(() => clearInterval(spinTimer));
+// 玩家点击或用键盘激活图标时打开游戏原生 RTE <船注册号>；不做任何自动请求。
+function openRoute(registration: string) {
+  showBuffer(`RTE ${registration}`);
+}
 
 // 缺油自动加油已迁移至全局 feature（src/features/basic/auto-refuel.ts）。
 // 此处仅负责 FLT 总览表的展示。
@@ -171,8 +167,12 @@ function onFuel(registration: string) {
             :class="$style.routeSpin"
             viewBox="0 0 24 24"
             role="button"
+            tabindex="0"
+            :aria-label="`RTE ${x.ship.registration}`"
             :data-tooltip="`RTE ${x.ship.registration}`"
-            @click="showBuffer(`RTE ${x.ship.registration}`)">
+            @click="openRoute(x.ship.registration)"
+            @keydown.enter="openRoute(x.ship.registration)"
+            @keydown.space.prevent="openRoute(x.ship.registration)">
             <!-- 透明热区：SVG 根元素空白处不接收指针事件，铺满 24×24 才能保证整枚图标可点。 -->
             <rect x="0" y="0" width="24" height="24" fill="none" pointer-events="all" />
             <g data-route-spin :data-flying="x.flying ? 'true' : 'false'">
@@ -340,8 +340,8 @@ function onFuel(registration: string) {
    颜色一律走主题令牌，不写字面色（组件里的字面色会被主题引擎按皮肤重映射）。 */
 .routeSpin {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   margin-left: 6px;
   flex: none;
   cursor: pointer;
