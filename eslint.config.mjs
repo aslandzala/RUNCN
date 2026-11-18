@@ -91,8 +91,6 @@ export default ts.config(
       'eslint.config.mjs',
       'src/types/unimport.d.ts',
       'scripts/**',
-      // MV3 后台脚本：不进 tsconfig（纯 classic script，无类型），单独忽略。
-      'public/background.js',
       '.venv/**',
     ],
   },
