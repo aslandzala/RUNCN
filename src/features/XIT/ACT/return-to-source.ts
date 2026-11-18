@@ -1,15 +1,37 @@
-// 从 SHP「生成维修 ACT」发起的操作包，跑完后自动把来源飞船界面开回来。
-// 只在用户显式点过生成按钮时登记；触发器静默跑同一个包时没有登记，不会误跳。
-// 记录用包名作 key：同一时刻同一包只可能由一次生成流程登记，跳回后立即清除。
-const returnCommands = new Map<string, string>();
+// 从 SHP / BRA「生成维修 ACT」登记的目标：购物跑完后把来源飞船界面开回来。
+// 登记与认领分开：生成时按包名入队，用户主动发起的那次执行（「执行」或「自动」）
+// 才认领并持有；触发器静默执行不认领，不会取走上一次放弃的登记。
+// 按包名索引保证别的包的手动执行拿不走本包的目标；同一包连开两条时先进先出。
+const EXPIRE_MS = 10 * 60 * 1000;
 
-export function setReturnCommand(packageName: string, command: string) {
-  returnCommands.set(packageName, command);
+interface PendingReturn {
+  command: string;
+  createdAt: number;
 }
 
-/** 取出并清除；没有登记或已取过则返回 undefined。 */
-export function consumeReturnCommand(packageName: string) {
-  const command = returnCommands.get(packageName);
-  returnCommands.delete(packageName);
-  return command;
+const pendingReturns = new Map<string, PendingReturn[]>();
+
+export function setReturnCommand(packageName: string, command: string) {
+  const entries = pendingReturns.get(packageName) ?? [];
+  entries.push({ command, createdAt: Date.now() });
+  pendingReturns.set(packageName, entries);
+}
+
+/** 按登记顺序取该包的一条；超过有效期的登记视为已放弃，直接丢弃。 */
+export function takeReturnCommand(packageName: string): string | undefined {
+  const entries = pendingReturns.get(packageName);
+  if (entries === undefined) {
+    return undefined;
+  }
+  const now = Date.now();
+  for (;;) {
+    const entry = entries.shift();
+    if (entry === undefined) {
+      pendingReturns.delete(packageName);
+      return undefined;
+    }
+    if (now - entry.createdAt <= EXPIRE_MS) {
+      return entry.command;
+    }
+  }
 }
