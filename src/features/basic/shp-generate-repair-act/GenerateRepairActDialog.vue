@@ -22,14 +22,12 @@ const exchangeStationMap: Record<string, string> = {
   CI1: 'Benten Station',
   IC1: 'Hortus Station',
   NC1: 'Moria Station',
+  CI2: 'Arclight Station',
+  NC2: 'Hubur Station',
 };
 
 const exchanges = Object.keys(exchangeStationMap);
 const exchange = persistedRef('genact-ship-exchange', exchanges[0]);
-// 旧版本持久化过 CI2 / NC2，选项移除后要回退到有效值，否则仓库名与 ACT 都会用到无效交易所。
-if (!exchanges.includes(exchange.value)) {
-  exchange.value = exchanges[0];
-}
 const useShipInv = persistedRef('genact-ship-use-inv', true);
 
 const warehouseName = computed(() => `${exchangeStationMap[exchange.value]} Warehouse`);
