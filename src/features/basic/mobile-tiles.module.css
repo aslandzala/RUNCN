@@ -1,0 +1,370 @@
+/* 窄屏单磁贴全屏 + 底部切换条。整组以 html 上的类为前缀：功能禁用或视口变宽时
+   类被移除，样式整组失效。 */
+
+.mobile {
+  /* 浏览器「桌面版网站」模式会把 980 的布局视口缩到屏幕宽，所有 CSS px 只剩四成。
+     脚本按 innerWidth / 屏幕短边 算出比例写进 --rp-mobile-scale，插件自绘的
+     标签、切换条按它放大，触摸目标才回到正常大小；正常手机上这个值是 1。 */
+  --rp-mobile-scale: 1;
+  --rp-mobile-tabbar-height: calc(38px * var(--rp-mobile-scale));
+  /* 游戏外壳的尺寸由脚本量出来写进这三个变量：磁贴只占中间那块内容区，
+     顶部 Head、左侧 sidebar、底部 foot 全部留给游戏自己。 */
+  --rp-mobile-head-height: 0px;
+  --rp-mobile-side-width: 0px;
+  --rp-mobile-foot-height: 0px;
+  /* 磁贴全部 fixed/隐藏后，分屏树残留宽度仍可能撑出横向滚动条。 */
+  overflow-x: hidden !important;
+}
+
+/* 分屏树摊平：Node 容器不再产生盒子，磁贴直接参与外层布局。磁贴宽度原本由
+   Node__child 的 inline width 百分比决定，摊平后这些宽度一并失效。 */
+.mobile [class*='Node__node'],
+.mobile [class*='Node__child'] {
+  display: contents !important;
+}
+
+/* 摊平后分隔条失去意义。 */
+.mobile [class*='TileDivider__'] {
+  display: none !important;
+}
+
+/* 默认全部隐藏，只有被标记的磁贴显示。 */
+.mobile [class*='Tile__tile'] {
+  display: none !important;
+}
+
+/* 分屏磁贴铺满内容区：上让 Head、左让 sidebar、下让切换条与游戏 foot。
+   margin 必须清零：磁贴自带 6px 间距，不清会让画面四周留白。 */
+.mobile [class*='Tile__tile'][data-rp-mobile-active='true'] {
+  display: block !important;
+  position: fixed !important;
+  inset: var(--rp-mobile-head-height) 0
+    calc(var(--rp-mobile-tabbar-height) + var(--rp-mobile-foot-height)) var(--rp-mobile-side-width) !important;
+  margin: 0 !important;
+  z-index: 5 !important;
+  overflow: auto !important;
+  background: var(--rp-skin-panel, #1b1b1b);
+}
+
+/* 组合面板（如 XIT FB 分屏）内部装着多块磁贴，窄屏下由它自己排成整列滚动。
+   这些磁贴不是独立面板，不能按「一块铺满」隐藏/铺满，保持普通块状即可。 */
+.mobile [data-rp-mobile-composite] [class*='Tile__tile'] {
+  display: block !important;
+}
+
+/* 磁贴内部撑满可用高度，避免底部留白。 */
+.mobile [class*='Tile__tile'][data-rp-mobile-active='true'] [class*='TileFrame__frame'] {
+  height: 100% !important;
+}
+
+/* 浮动窗口（点按钮新开的窗口）自带外壳：Window__window 负责定位，Window__header 是标题栏
+   （含关闭按钮），Window__body 装磁贴。外壳不能摊平，否则标题栏会脱离容器乱飘，
+   改为让外壳自身全屏，标题栏照常保留，磁贴退化成普通块填满剩余高度。 */
+.mobile [class*='Window__window'] {
+  display: none !important;
+}
+
+.mobile [class*='Window__window']:has([data-rp-mobile-active='true']) {
+  display: flex !important;
+  flex-direction: column !important;
+  position: fixed !important;
+  inset: var(--rp-mobile-head-height) 0
+    calc(var(--rp-mobile-tabbar-height) + var(--rp-mobile-foot-height)) var(--rp-mobile-side-width) !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  z-index: 6 !important;
+}
+
+/* 游戏用 hidden 类标记的窗口（如 showBuffer 的 autoClose 询价窗口）本来就不该显示，
+   上面的 :has 规则会把它重新显示出来，这里必须压回去。放在其后以同权重后置生效。 */
+.mobile [class*='Window__window'][class*='hidden'] {
+  display: none !important;
+}
+
+.mobile [class*='Window__window'] [class*='Window__body'] {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+.mobile [class*='Window__window'] [class*='Tile__tile'][data-rp-mobile-active='true'] {
+  display: block !important;
+  position: static !important;
+  height: 100% !important;
+  margin: 0 !important;
+  z-index: auto !important;
+  overflow: auto !important;
+  background: transparent;
+}
+
+/* 外壳自带的标题栏只有「缓存窗口N」和最小化/关闭按钮，和磁贴自己的标题栏重复。
+   把外壳标题压成零高度，按钮组挪到右上角浮动：省掉一整行，按钮仍可点。 */
+.mobile [class*='Window__window']:has([data-rp-mobile-active='true']) [class*='Window__header'] {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: auto !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  overflow: visible !important;
+  z-index: 30 !important;
+  pointer-events: none !important;
+}
+
+.mobile [class*='Window__window']:has([data-rp-mobile-active='true']) [class*='Window__title'] {
+  display: none !important;
+}
+
+.mobile [class*='Window__window']:has([data-rp-mobile-active='true']) [class*='Window__buttons'] {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  padding: 1px 6px !important;
+  background: var(--rp-skin-panel, #1b1b1b) !important;
+  border: 1px solid var(--rp-skin-border-strong, rgba(128, 128, 128, 0.35)) !important;
+  border-top: none !important;
+  border-right: none !important;
+  border-radius: 0 0 0 6px !important;
+  pointer-events: auto !important;
+}
+
+/* 顶部中间的当前基地徽标：只在窄屏且已选中基地时出现。不接收指针事件，
+   避免挡住标题栏和右上角的窗口按钮。 */
+.locationBadge {
+  display: none;
+}
+
+.mobile .locationBadge {
+  display: block;
+  position: fixed;
+  /* 贴在顶部 Head 下方，并且在 sidebar 右侧的内容区里居中。 */
+  top: calc(var(--rp-mobile-head-height) + 2px);
+  left: calc(var(--rp-mobile-side-width) + (100vw - var(--rp-mobile-side-width)) / 2);
+  transform: translateX(-50%);
+  z-index: 31;
+  max-width: 44vw;
+  padding: 1px 8px;
+  border-radius: 9px;
+  background: var(--rp-skin-ink, #444);
+  color: var(--rp-skin-panel, #eee);
+  font-size: calc(11px * var(--rp-mobile-scale));
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* —— 顶部 Head ——
+   窄屏一行放不下「视图 / 界面 / 添加 / 全屏 / 齿轮 + 屏幕标签 + 新闻账号」：原生布局里
+   屏幕标签栏被挤到 50px，只露出半个标签，只能靠下拉列表切屏（列表里还带着隐藏屏幕，很乱）。
+   这里改成两行：控件占第一行，外显标签独占第二行横向滚动；隐藏的屏幕游戏自己带
+   display:none，不碰。右侧新闻/账号块在 492 宽下必溢出，直接收起（设置可从 sidebar 进）。 */
+.mobile [class*='Head__container'] {
+  flex-wrap: wrap !important;
+  height: auto !important;
+  align-content: flex-start !important;
+  /* 游戏在 492 宽下给 Head 算了 455px，右端会溢出 15px（原生行为，被 html 的
+     overflow-x: hidden 裁掉），窄屏直接按可用宽度兜住。 */
+  max-width: calc(100vw - var(--rp-mobile-side-width)) !important;
+}
+
+/* 左侧「视图」只有 26px，让它和界面控件挤在同一行；屏控块自己占满余下宽度并在内部换行，
+   这样标签栏不用另起一整行，「视图」也不会单独占掉一行高度。 */
+.mobile [class*='Head__contextAndScreens'] {
+  flex: 1 0 100% !important;
+  flex-wrap: nowrap !important;
+  align-content: flex-start !important;
+  row-gap: 0 !important;
+}
+
+/* 桌面版网站模式下，Head 里的链接同样会被双击缩放判定拖住，统一改成立即响应。 */
+.mobile [class*='Head__container'] :is(a, [class*='HeadItem__container']) {
+  touch-action: manipulation !important;
+}
+
+.mobile [class*='Head__container'] > :last-child {
+  display: none !important;
+}
+
+.mobile [class*='rp-TabBar__spacer'] {
+  display: none !important;
+}
+
+/* 标签栏的父级（ScreenControls__container）是 nowrap：标签栏会被挤到控件后面、
+   溢到视口外。改成可换行，标签栏就能独占它自己的下一行。 */
+.mobile [class*='ScreenControls__container'] {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  flex-wrap: wrap !important;
+}
+
+.mobile [class*='rp-TabBar__container'] {
+  flex: 1 0 100% !important;
+  order: 99 !important;
+  width: 100% !important;
+  margin: 0 !important;
+  justify-content: flex-start !important;
+  min-width: 0 !important;
+  min-height: 24px !important;
+  /* 组件本身把标签栏限死 54px（两行）并纵向滚动。窄屏标签按 --rp-mobile-scale 放大后
+     一行只放得下六七个，两行装不下全部屏幕，第三行会被裁掉——表现为「顶部标签显示不全」。
+     这里放开高度上限，行数按需要增长；只在极端缩放下才退回纵向滚动。 */
+  max-height: 40vh !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  /* 换行后不需要横向滚动，横向一律裁掉，避免整行被推出屏幕。 */
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-width: none;
+}
+
+.mobile [class*='rp-TabBar__container']::-webkit-scrollbar {
+  display: none;
+}
+
+/* 标签压到 11px / 22px 行高：一屏能看到五六个，滑一两下就能找到目标屏幕。
+   桌面版网站模式下按 --rp-mobile-scale 放大，屏幕上才不会缩成一团。
+   触摸目标抬到 30px（视觉尺寸），没有 viewport meta 时浏览器会做双击缩放判定，
+   轻点要等 300ms、手指一动就判成滚动，声明 manipulation 让轻点立即派发。
+   注意：不能给 rp-TabBar__item 设 display，隐藏屏幕靠游戏写的内联 display:none 判掉。 */
+.mobile [class*='rp-TabBar__container'] [class*='rp-TabBar__item'] {
+  min-height: calc(30px * var(--rp-mobile-scale)) !important;
+  touch-action: manipulation !important;
+}
+
+.mobile [class*='rp-TabBar__container'] [class*='HeadItem__container'] {
+  min-height: calc(22px * var(--rp-mobile-scale)) !important;
+  padding: 0 calc(1px * var(--rp-mobile-scale)) !important;
+  align-items: center !important;
+  touch-action: manipulation !important;
+}
+
+.mobile [class*='rp-TabBar__container'] [class*='HeadItem__label'] {
+  font-size: calc(11px * var(--rp-mobile-scale)) !important;
+  line-height: 1.25 !important;
+  padding: 0 calc(2px * var(--rp-mobile-scale)) !important;
+}
+
+/* 底部游戏栏（一键关闭、货币栏）在窄屏只占一行、还和切换条抢位置，直接收起：
+   切换条贴底能多出 26px 给磁贴内容。foot 不显示后量到的高度为 0，磁贴与切换条自动贴底。 */
+.mobile [class*='Frame__foot'] {
+  display: none !important;
+}
+
+/* 顶部 Head 里的屏幕切换下拉：原生按视口高度铺开，最下面几项会被底部切换条压住，
+   按可用高度限高并允许滚动。行高与内部按钮原生 19/17px，触屏上点不准，一并抬高。 */
+.mobile [class*='ScreenControls__screens___'] {
+  max-height: calc(
+    100vh - var(--rp-mobile-head-height) - var(--rp-mobile-tabbar-height)
+  ) !important;
+  overflow-y: auto !important;
+}
+
+/* 下拉里带 hiddenName 的行就是 TabBar 中被隐藏的屏幕，窄屏不再列出来，免得一列几十项。 */
+.mobile
+  [class*='ScreenControls__screens___']
+  [class*='ScreenControls__screen___']:has([class*='hiddenName']) {
+  display: none !important;
+}
+
+.mobile [class*='ScreenControls__screen___'] {
+  min-height: 28px !important;
+  align-items: center !important;
+}
+
+.mobile
+  [class*='ScreenControls__screens___']
+  :is(
+    [class*='ScreenControls__lock___'],
+    [class*='ScreenControls__hide___'],
+    [class*='ScreenControls__copy___'],
+    [class*='ScreenControls__delete___']
+  ) {
+  min-height: 26px !important;
+  min-width: 30px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* 底部切换条：只在窄屏出现，列出当前屏幕的全部磁贴。 */
+.tabBar {
+  display: none;
+}
+
+.mobile .tabBar {
+  display: flex;
+  align-items: stretch;
+  position: fixed;
+  /* 让开左侧 sidebar 与底部游戏 foot，切换条只占内容区。 */
+  left: var(--rp-mobile-side-width);
+  right: 0;
+  bottom: var(--rp-mobile-foot-height);
+  z-index: 20;
+  height: var(--rp-mobile-tabbar-height);
+  box-sizing: border-box;
+  gap: calc(3px * var(--rp-mobile-scale));
+  padding: calc(3px * var(--rp-mobile-scale)) calc(4px * var(--rp-mobile-scale));
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--rp-skin-panel, rgba(20, 20, 20, 0.97));
+  border-top: 1px solid var(--rp-skin-border-strong, rgba(255, 255, 255, 0.18));
+  scrollbar-width: none;
+}
+
+.mobile .tabBar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  min-width: calc(40px * var(--rp-mobile-scale));
+  /* 标签用的是 2 字短名，限宽只兜底异常长的命令参数，避免一项占满整条。 */
+  max-width: calc(92px * var(--rp-mobile-scale));
+  min-height: calc(28px * var(--rp-mobile-scale));
+  height: auto;
+  padding: 0 calc(6px * var(--rp-mobile-scale));
+  box-sizing: border-box;
+  border: 1px solid var(--rp-skin-border-strong, rgba(255, 255, 255, 0.18));
+  border-radius: calc(3px * var(--rp-mobile-scale));
+  background: transparent;
+  color: var(--rp-skin-ink, #d6d6d6);
+  font: inherit;
+  font-size: calc(11px * var(--rp-mobile-scale));
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+/* 返回键：只在从页面里点开子面板时出现，固定窄宽，和面板标签区分开。 */
+.tabBack {
+  min-width: calc(32px * var(--rp-mobile-scale));
+  max-width: calc(32px * var(--rp-mobile-scale));
+  padding: 0;
+  font-size: calc(14px * var(--rp-mobile-scale));
+  font-weight: 700;
+}
+
+/* 选中态用 ink 与 panel 做反色实底：这两个 token 天然互为对比色，深浅主题都成立。
+   实测 accent-primary 在浅色主题下本身是浅色，拿它当字色或底色都会糊成一片。 */
+.tabActive {
+  border-color: var(--rp-skin-ink, #d6d6d6);
+  background: var(--rp-skin-ink, #444);
+  color: var(--rp-skin-panel, #eee);
+  font-weight: 700;
+}

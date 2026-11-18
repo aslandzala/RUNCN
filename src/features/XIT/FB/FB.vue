@@ -8,6 +8,7 @@ import { UI_TILES_CHANGE_COMMAND } from '@src/infrastructure/prun-api/client-mes
 import { dispatchClientPrunMessage } from '@src/infrastructure/prun-api/prun-api-listener';
 import { getEntityNaturalIdFromAddress } from '@src/infrastructure/prun-api/data/addresses';
 import { sitesStore } from '@src/infrastructure/prun-api/data/sites';
+import { isMobileLayout } from '@src/features/basic/mobile-query';
 import { getPrunId } from '@src/infrastructure/prun-ui/attributes';
 import { showBuffer } from '@src/infrastructure/prun-ui/buffers';
 import { closePrunWindow } from '@src/infrastructure/prun-ui/utils/close-prun-window';
@@ -23,6 +24,8 @@ const tile = useTile();
 const SCOPE_ATTR = 'data-rp-fb-scope';
 const scopeId = ref('');
 const isFloating = ref(false);
+// 窄屏时三栏改成一列滚动，模板据此挂类与组合面板标记。
+const narrow = ref(false);
 const rootElement = ref<HTMLElement>();
 
 function fbScope() {
@@ -304,6 +307,7 @@ const moved = new Map<SlotKey, Moved>();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
 const hiddenShells = new Set<HTMLElement>();
 const touchedStyles: { element: HTMLElement; attr: string | null }[] = [];
+const chromeTouched: { element: HTMLElement; attr: string | null }[] = [];
 
 // ── 底栏 dock 项 ──────────────────────────────────────────────
 // FB 自己 showBuffer 开出来的窗口会在底栏留下一个数字按钮。用户要的是底栏只有
@@ -398,6 +402,33 @@ function rememberStyle(element: HTMLElement) {
   if (!touchedStyles.some(x => x.element === element)) {
     touchedStyles.push({ element, attr: element.getAttribute('style') });
   }
+}
+
+// 「铺满整页」的整形改动单独记一份：它给停靠树上的兄弟节点写了内联
+// display:none，而内联 !important 连窄屏切换条要显示的面板一起藏掉，
+// 所以窄屏时必须能单独撤回，且不能连带撤掉槽位里的磁贴。
+function rememberChromeStyle(element: HTMLElement) {
+  if (!chromeTouched.some(x => x.element === element)) {
+    chromeTouched.push({ element, attr: element.getAttribute('style') });
+  }
+}
+
+function restoreChrome() {
+  for (const { element, attr } of chromeTouched) {
+    if (!element.isConnected) {
+      continue;
+    }
+    if (attr === null) {
+      element.removeAttribute('style');
+    } else {
+      element.setAttribute('style', attr);
+    }
+  }
+  chromeTouched.length = 0;
+  hiddenHeader?.style.removeProperty('display');
+  hiddenHeader = undefined;
+  hiddenControls?.style.removeProperty('display');
+  hiddenControls = undefined;
 }
 
 function adopt(key: SlotKey, element: HTMLElement) {
@@ -519,13 +550,13 @@ function expandSelf() {
     if (!parent) {
       continue;
     }
-    rememberStyle(element);
+    rememberChromeStyle(element);
     const siblings = Array.from(parent.children) as HTMLElement[];
     for (const sibling of siblings) {
       if (sibling === element || sibling.className.includes('TileDivider')) {
         continue;
       }
-      rememberStyle(sibling);
+      rememberChromeStyle(sibling);
       sibling.style.setProperty('display', 'none', 'important');
     }
     element.style.setProperty('flex', '1 1 auto', 'important');
@@ -634,19 +665,16 @@ const missingSince = new Map<SlotKey, number>();
 // 槽位空着一大段时间。稳定之后仍用 1.5 秒宽限，防止命令栏改写瞬间误开窗口。
 let startupUntil = 0;
 
-// 每个 XIT FB 面板各自驱动自己的 tick。早期用「全文档第一个 layout」判主实例，
-// 会让同时打开的第二个 XIT FB 窗口整块停摆（所有槽位永远全空）。
-function tick() {
-  if (!tile.frame?.isConnected || !rootElement.value?.isConnected) {
-    return;
-  }
-  // 铺满整屏、隐藏白条、接管停靠布局只对游戏内标签页有意义；浮动缓存窗口
-  // 必须保留自己的标题栏和关闭按钮，否则窗口关不掉。
-  if (!isFloating.value) {
-    expandSelf();
-    hideTileChrome();
-  }
-  syncDockItems();
+// ── 窄屏：三栏改成整列滚动 ────────────────────────────────────
+// 手机窄屏是「一块磁贴铺满 + 底部切换条」。三栏塞进 390px 只能看到碎片，
+// 所以窄屏下把分屏面板本身排成一列（见 .narrow 样式），各槽位依次占满宽度。
+// 槽位里的磁贴由面板自己管，不再单独进切换条 —— 窄屏布局靠 data-rp-mobile-composite
+// 认这一段，不会把它们当成独立面板去铺满屏幕（那会和槽位写死的 inline 尺寸打架）。
+// 另外「铺满整页」的内联整形必须撤掉：它给兄弟节点写了内联 display:none，
+// 而内联 !important 会连切换条要显示的面板一起藏掉。
+
+// 槽位认领：五种面板各归各位，缺窗口的按需补开。
+function adoptSlots() {
   const now = Date.now();
   const claimed = new Set<HTMLElement>();
   for (const key of SLOT_KEYS) {
@@ -697,6 +725,28 @@ function tick() {
     // 不再隐藏任何「多余」磁贴：其它停靠格已被 expandSelf 藏住，
     // 而用户自己开的浮动窗口必须原样留在屏幕上。
   }
+}
+
+// 每个 XIT FB 面板各自驱动自己的 tick。早期用「全文档第一个 layout」判主实例，
+// 会让同时打开的第二个 XIT FB 窗口整块停摆（所有槽位永远全空）。
+function tick() {
+  if (!tile.frame?.isConnected || !rootElement.value?.isConnected) {
+    return;
+  }
+  const compact = isMobileLayout();
+  if (compact !== narrow.value) {
+    narrow.value = compact;
+    // 只在进出窄屏时撤一次整形，避免每轮巡检都把内联样式拆了重贴。
+    restoreChrome();
+  }
+  // 铺满整屏、隐藏白条只对游戏内标签页有意义；浮动缓存窗口必须保留
+  // 自己的标题栏和关闭按钮，否则窗口关不掉。
+  if (!compact && !isFloating.value) {
+    expandSelf();
+    hideTileChrome();
+  }
+  syncDockItems();
+  adoptSlots();
 }
 
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -803,7 +853,13 @@ defineExpose({ tileIds: () => Array.from(moved.keys()) });
   <!-- data-rp-fb-panel 是「XIT FB 面板」的稳定作用域标记：全局 CSS 里的
        INV 紧凑排列规则与「紧凑排列」按钮只在带此标记的元素内部生效，
        用户单独打开的 INV / SHPI 窗口保持游戏原版排列与图标大小。 -->
-  <div ref="rootElement" :class="$style.layout" data-rp-fb-panel>
+  <!-- data-rp-mobile-composite：与 basic/mobile-tiles 约定的标记。窄屏下这里是
+       「一块面板装多块面板」，里面的磁贴由面板自己排，不再单独进底部切换条。 -->
+  <div
+    ref="rootElement"
+    :class="[$style.layout, narrow && $style.narrow]"
+    :data-rp-mobile-composite="narrow ? 'true' : null"
+    data-rp-fb-panel>
     <div :class="$style.fleet">
       <FLEET compact-ship />
     </div>
@@ -1069,5 +1125,49 @@ html [data-rp-fb-panel] .slot.mainInvSlot:has([data-rp-inv-compact='on']) {
   background-color: var(--rp-skin-scroll-thumb, #b6c1cb) !important;
   border: 0 !important;
   border-radius: 3px;
+}
+/* 窄屏（手机单磁贴铺满）：三栏并排只剩碎片，改成整列滚动，
+   每个槽位独占整宽、依次往下排。高度用 vh 给个基准，内容多的槽位照常内部滚动。 */
+.narrow {
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.narrow .fleet,
+.narrow .middle,
+.narrow .right {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.narrow .fleet,
+.narrow .slot,
+.narrow .slot.fltSlot {
+  flex: 0 0 auto;
+  height: 55vh;
+  min-height: 260px;
+}
+
+/* INV 槽在紧凑模式下会被单独收窄（桌面三栏均分时那 40px 让给 BS / BURN）。
+   窄屏一列排布没有这个前提，仍按整块高度占位；这条要压过上面的紧凑规则，
+   所以带上同样的 html / 属性前缀。 */
+html [data-rp-fb-panel].narrow .slot.mainInvSlot:has([data-rp-inv-compact='on']) {
+  flex: 0 0 auto;
+  height: 55vh;
+  min-height: 260px;
+}
+
+/* 舰船货舱：一列子槽，每艘船一块，整列不再限高（外层已经能滚）。 */
+.narrow .shipList {
+  flex: 0 0 auto;
+  height: auto;
+  max-height: none;
+  overflow-y: visible;
+}
+
+.narrow .slot.shipSlot {
+  flex: 0 0 200px;
+  min-height: 200px;
 }
 </style>

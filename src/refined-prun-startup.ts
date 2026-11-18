@@ -26,6 +26,19 @@ function isExtensionContext(): boolean {
   );
 }
 
+// 让后台把这个标签页标记为「不要丢弃」：手机浏览器回收后台标签页时会整页重载，
+// 游戏得从头加载。后台不在或浏览器不支持时静默失败，不影响启动。
+function requestKeepAlive() {
+  try {
+    const result = chrome.runtime.sendMessage({ type: 'rp-keep-alive' });
+    if (result !== undefined && typeof result.catch === 'function') {
+      void result.catch(() => undefined);
+    }
+  } catch {
+    // 没有后台监听（旧版本/不支持的环境）时忽略。
+  }
+}
+
 async function startup() {
   if (document.documentElement.classList.contains('refined-prun')) {
     window.postMessage({ type: 'rp-reload-page' }, '*');
@@ -34,6 +47,7 @@ async function startup() {
   if (!isExtensionContext()) {
     return;
   }
+  requestKeepAlive();
   let userData: unknown;
   try {
     userData = await loadUserData();
