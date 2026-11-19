@@ -54,18 +54,20 @@ const includeConsumables = persistedRef('genact-burn-consumables', true);
 const includeInputs = persistedRef('genact-burn-inputs', true);
 const useBaseInv = persistedRef('genact-burn-base-inv', true);
 
-// Exchange code to station name mapping.
+// 常用交易所（AI1 / CI1 / IC1 / NC1）。CI2（Arclight）与 NC2（Hubur）属于冷门站点，
+// 采购时常被误选，列表里不再提供；老版本持久化过它们的值要回退到第一个有效项。
 const exchangeStationMap: Record<string, string> = {
   AI1: 'Antares Station',
   CI1: 'Benten Station',
   IC1: 'Hortus Station',
   NC1: 'Moria Station',
-  CI2: 'Arclight Station',
-  NC2: 'Hubur Station',
 };
 
 const exchanges = Object.keys(exchangeStationMap);
 const exchange = persistedRef('genact-burn-exchange', exchanges[0]);
+if (!exchanges.includes(exchange.value)) {
+  exchange.value = exchanges[0];
+}
 
 // Auto-derive warehouse name from selected exchange.
 const warehouseName = computed(() => `${exchangeStationMap[exchange.value]} Warehouse`);
