@@ -31,11 +31,10 @@ const exchangeStationMap: Record<string, string> = {
 };
 const exchanges = computed(() => withOptionalRareExchanges(Object.keys(exchangeStationMap)));
 
+// IC1 永不被过滤，因此这里的结果一定在列表内。
 const initialExchange =
   plan.exchange && exchanges.value.includes(plan.exchange) ? plan.exchange : 'IC1';
-const exchange = ref(
-  exchanges.value.includes(initialExchange) ? initialExchange : exchanges.value[0],
-);
+const exchange = ref(initialExchange);
 const useCXInv = ref(true);
 
 const planetEnv = ref<PlanetEnv | undefined>();

@@ -21,7 +21,12 @@ const materialGroup = ref(action.group ?? materialGroups.value[0]);
 const exchanges = computed(() =>
   withOptionalRareExchanges(['AI1', 'CI1', 'IC1', 'NC1', 'CI2', 'NC2']),
 );
-const exchange = ref(action.exchange ?? exchanges.value[0]);
+// 老动作可能存过 CI2 / NC2：hidden 后回退到第一个有效交易所，避免下拉显示与实际值脱节。
+const exchange = ref(
+  action.exchange && exchanges.value.includes(action.exchange)
+    ? action.exchange
+    : exchanges.value[0],
+);
 
 const priceLimits = reactive<{ value: [string, number][] }>({ value: getPriceLimits() });
 
