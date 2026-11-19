@@ -88,10 +88,30 @@ const COMMAND_LABELS: Record<string, string> = {
   inv: '库存',
   bs: '基地',
   flt: '舰队',
-  prod: '生产',
+  prod: '生产线',
   act: '操作包',
   fb: '分屏',
+  cart: '购物车',
+  cxos: '挂单',
 };
+
+// 交易所窗口（`CX <代码>`）：标题是英文站名，截前两个字母毫无意义，改用城市缩写。
+const EXCHANGE_LABELS: Record<string, string> = {
+  ai1: 'ANT',
+  ci1: 'BEN',
+  ic1: 'HRT',
+  nc1: 'MOR',
+};
+
+// 游戏原生窗口的标题常是「位于 <星球> 的 <窗口名>」，直接截前两个字只会得到「位于」。
+// 这里按窗口名给固定短名；顺序有意义：更长的名字必须排在它的前缀之前。
+const TITLE_LABELS: readonly [RegExp, string][] = [
+  [/全球商会维护供给/, 'COGCU'],
+  [/全球商会/, 'COGC'],
+  [/公共基础设施/, '基建'],
+  [/人口报告/, '人口'],
+  [/生产线/, '生产线'],
+];
 
 // 取出用于查表的命令名：`XIT FLT` 取 flt，`bs OF-443b` 取 bs。
 function commandKey(cmd: string): string {
@@ -114,6 +134,14 @@ function commandArgs(cmd: string): string {
 function buildLabels(tiles: TileEntry[]): Map<string, string> {
   const bases = new Map<string, string>();
   for (const { cmd, title } of tiles) {
+    const words = cmd.split(/\s+/);
+    if ((words[0] ?? '').toLowerCase() === 'cx') {
+      const exchange = EXCHANGE_LABELS[(words[1] ?? '').toLowerCase()];
+      if (exchange !== undefined) {
+        bases.set(cmd, exchange);
+        continue;
+      }
+    }
     const mapped = COMMAND_LABELS[commandKey(cmd)];
     if (mapped !== undefined) {
       bases.set(cmd, mapped);
@@ -151,8 +179,18 @@ function buildLabels(tiles: TileEntry[]): Map<string, string> {
 }
 
 // 标题常带星球名（「消耗品报告 - Nova Kyushu」）或副标题，只留主标题并压到 2 个字，
-// 与其他短名保持一致的紧凑宽度。
+// 与其他短名保持一致的紧凑宽度。原生窗口的「位于 <星球> 的 <窗口名>」先按窗口名查表，
+// 查不到就取「的」后面那段，避免整条标签只剩「位于」。
 function shortenTitle(title: string): string {
+  for (const [pattern, label] of TITLE_LABELS) {
+    if (pattern.test(title)) {
+      return label;
+    }
+  }
+  const located = title.match(/^位于.+的(.+)$/);
+  if (located !== null) {
+    return located[1].slice(0, 2);
+  }
   const main = title.split(/[：:]| - /)[0]?.trim() ?? '';
   const source = main.length > 0 ? main : title;
   return source.slice(0, 2);
