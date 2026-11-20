@@ -304,7 +304,6 @@ const moved = new Map<SlotKey, Moved>();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
 const hiddenShells = new Set<HTMLElement>();
 const touchedStyles: { element: HTMLElement; attr: string | null }[] = [];
-const chromeTouched: { element: HTMLElement; attr: string | null }[] = [];
 
 // ── 底栏 dock 项 ──────────────────────────────────────────────
 // FB 自己 showBuffer 开出来的窗口会在底栏留下一个数字按钮。用户要的是底栏只有
@@ -398,15 +397,6 @@ const INV_TILE_EXTRA_PX = 16;
 function rememberStyle(element: HTMLElement) {
   if (!touchedStyles.some(x => x.element === element)) {
     touchedStyles.push({ element, attr: element.getAttribute('style') });
-  }
-}
-
-// 「铺满整页」的整形改动单独记一份：它给停靠树上的兄弟节点写了内联
-// display:none，而内联 !important 连窄屏切换条要显示的面板一起藏掉，
-// 所以窄屏时必须能单独撤回，且不能连带撤掉槽位里的磁贴。
-function rememberChromeStyle(element: HTMLElement) {
-  if (!chromeTouched.some(x => x.element === element)) {
-    chromeTouched.push({ element, attr: element.getAttribute('style') });
   }
 }
 
@@ -529,13 +519,13 @@ function expandSelf() {
     if (!parent) {
       continue;
     }
-    rememberChromeStyle(element);
+    rememberStyle(element);
     const siblings = Array.from(parent.children) as HTMLElement[];
     for (const sibling of siblings) {
       if (sibling === element || sibling.className.includes('TileDivider')) {
         continue;
       }
-      rememberChromeStyle(sibling);
+      rememberStyle(sibling);
       sibling.style.setProperty('display', 'none', 'important');
     }
     element.style.setProperty('flex', '1 1 auto', 'important');
