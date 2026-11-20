@@ -28,7 +28,11 @@ import {
 } from './native-route-editor';
 import { computeNativeRouteFuel } from './native-route-fuel';
 import { recordNativeRoute } from './native-route-registry';
-import { socketDeleteRoute, writeNativeRouteBySocket } from './native-route-socket';
+import {
+  socketDeleteRoute,
+  socketSetRouteRepeats,
+  writeNativeRouteBySocket,
+} from './native-route-socket';
 import {
   DEFAULT_WAYPOINT_FUEL_PERCENT,
   hoursInvalidatedBySettingChange,
@@ -37,6 +41,19 @@ import {
   type NativeWaypoint,
   type RouteTank,
 } from './native-route-plan';
+import {
+  billWeightVolume,
+  roundBill as buildRoundBill,
+  stockingRoundsMax,
+  sustainRounds,
+  cycleDaysFromHours,
+} from './native-route-loop';
+import { billFromLoadSteps, cxShortfallPackage, readOriginStock } from './native-route-purchase';
+import { shipChainCapacity } from './chain-allocation';
+import { formatFlightDuration } from './chain-format';
+import { materialsStore } from '@src/infrastructure/prun-api/data/materials';
+import { cxobStore } from '@src/infrastructure/prun-api/data/cxob';
+import { exchangesStore } from '@src/infrastructure/prun-api/data/exchanges';
 import { stagedDispatch } from './staged';
 
 // 清理上一次未完成航线失败时抛出：绝不能继续写新航线，否则旧航线会变成无人认领的残留。
@@ -47,6 +64,9 @@ const {
   initialWaypoints,
   chainName = '',
   autoStart = false,
+  loop = false,
+  cycleHours,
+  loopFuel,
 } = defineProps<{
   candidate: ShipChainPlan;
   initialWaypoints: NativeWaypoint[];
@@ -54,6 +74,13 @@ const {
   chainName?: string;
   // 首次打开向导时直接跑燃料计算与写入（FLEET「生成原生 RT」默认开启）。
   autoStart?: boolean;
+  // 循环模式：写完航点/步骤后打开游戏 Loop，按轮备货（v1 单船）。
+  loop?: boolean;
+  // 生成时快照的飞行周期（小时），界面标「预计」。
+  cycleHours?: number;
+  // 每轮 SF/FF 消耗。循环模式必有（ChainView 用 fuelPerRound 算，缺逐段油耗时它自己已回退罐容量）；
+  // 只有非循环暂存才没有，此时 roundBill 不含燃料、也不展示备货口径。
+  loopFuel?: { stl: number; ftl: number };
 }>();
 const emit = defineEmits<{ close: []; started: [] }>();
 
@@ -130,6 +157,144 @@ const waypoints = computed(() =>
 );
 const purchase = chainPurchasePackage(candidate.ship, candidate.plan);
 const hasPurchase = purchase.groups.some(group => Object.keys(group.materials ?? {}).length > 0);
+
+// ── 循环备货（N 轮）─────────────────────────────────────────────
+// 每轮出发地账单 = 航点 0 装载（cxBill）+ 每轮 SF/FF；N 轮总量不超过一船满载。
+const origin = computed(() => waypoints.value[0]?.location.trim() ?? '');
+const cxBill = computed(() => billFromLoadSteps(waypoints.value[0]?.steps ?? []));
+// 每轮账单：循环模式带 fuelPerRound 的 SF/FF；非循环暂存没有燃料数据，按 0 算（此时不展示备货）。
+const roundBill = computed(() => buildRoundBill(cxBill.value, loopFuel ?? { stl: 0, ftl: 0 }));
+const roundMaterials = computed(() => {
+  const mats: Record<string, { weight: number; volume: number }> = {};
+  for (const ticker of Object.keys(roundBill.value)) {
+    const mat = materialsStore.getByTicker(ticker);
+    if (mat !== undefined) {
+      mats[ticker] = { weight: mat.weight, volume: mat.volume };
+    }
+  }
+  return mats;
+});
+// 物料没下发时算不出重量/体积，宁可只备 1 轮，也不按偏小的体积报出偏大的 N。
+const roundsUnweighable = computed(() =>
+  Object.keys(roundBill.value).some(ticker => roundMaterials.value[ticker] === undefined),
+);
+const nMax = computed(() => {
+  const cap = shipChainCapacity(candidate.ship);
+  if (cap === undefined || roundsUnweighable.value) {
+    return 1;
+  }
+  return stockingRoundsMax(
+    { weight: cap.weight, volume: cap.volume },
+    billWeightVolume(roundBill.value, roundMaterials.value),
+  );
+});
+// 输入框原样保留键入内容（清空时是 ''），只在计费/回显时钳到 1..Nmax：逐键回写会把
+// 「清空后输入 5」变成「15 → 钳成 Nmax」，用户输的 5 悄悄变成上限。
+const stockingRoundsInput = ref<number | string>(1);
+const stockingRounds = computed(() => {
+  const raw = Number(stockingRoundsInput.value);
+  return Number.isFinite(raw) ? Math.min(Math.max(1, Math.round(raw)), nMax.value) : 1;
+});
+watch(nMax, max => {
+  const raw = Number(stockingRoundsInput.value);
+  if (Number.isFinite(raw) && raw > max) {
+    stockingRoundsInput.value = max;
+  }
+});
+function normalizeStockingRounds() {
+  stockingRoundsInput.value = stockingRounds.value;
+}
+const exchangeCode = computed(() =>
+  origin.value === '' ? undefined : exchangesStore.getByNaturalId(origin.value)?.code,
+);
+// CXOB 只随 COMEX_BROKER_DATA 推送到达（要先开过该订单簿窗口）。没有订单簿 ≠ 不可买：
+// 先静默拉一次隐藏窗口读回来；仍读不到按「未知」处理（燃料照进备货包），
+// 只有确认订单簿存在且卖单为空才算不可买——否则默认路径会把每轮 SF/FF 都丢掉。
+const requestedOrderBooks = new Set<string>();
+function requestOrderBook(ticker: string, code: string) {
+  const key = `${ticker}.${code}`;
+  if (cxobStore.getByTicker(key) !== undefined || requestedOrderBooks.has(key)) {
+    return;
+  }
+  requestedOrderBooks.add(key);
+  void showBuffer(`CXOB ${key}`, {
+    autoClose: true,
+    closeWhen: computed(() => cxobStore.getByTicker(key) !== undefined),
+  });
+}
+watch(
+  [exchangeCode, roundBill],
+  ([code, bill]) => {
+    if (!loop || code === undefined) {
+      return;
+    }
+    for (const ticker of ['SF', 'FF']) {
+      if ((bill[ticker] ?? 0) > 0) {
+        requestOrderBook(ticker, code);
+      }
+    }
+  },
+  { immediate: true },
+);
+// 确认不可买的燃料：只提示缺口、不进备货包。
+const unbuyableFuel = computed(() => {
+  const code = exchangeCode.value;
+  if (code === undefined) {
+    return [];
+  }
+  return ['SF', 'FF'].filter(ticker => {
+    if ((roundBill.value[ticker] ?? 0) <= 0) {
+      return false;
+    }
+    const book = cxobStore.getByTicker(`${ticker}.${code}`);
+    return book !== undefined && book.sellingOrders.length === 0;
+  });
+});
+const stockingBill = computed(() => {
+  const bill: Record<string, number> = {};
+  for (const [ticker, amount] of Object.entries(roundBill.value)) {
+    if (unbuyableFuel.value.includes(ticker)) {
+      continue;
+    }
+    bill[ticker] = amount * stockingRounds.value;
+  }
+  return bill;
+});
+const stockingPackage = computed(() => cxShortfallPackage(origin.value, stockingBill.value));
+const sustain = computed(() => sustainRounds(roundBill.value, readOriginStock(origin.value)));
+const cycleText = computed(() =>
+  cycleHours === undefined ? '' : formatFlightDuration(cycleHours * 3600000),
+);
+const supplyText = computed(() =>
+  cycleHours === undefined ? '' : `${cycleDaysFromHours(cycleHours).toFixed(1)} 天`,
+);
+// 一船满载补给能撑几天（只算基地日耗，不含链上输送与返航货占舱）：与每轮补给天数
+// 对照，说明短周期环线每轮只送一个周期的量。
+const capacityText = computed(() => {
+  const days = candidate.plan.supplyCapacityDays;
+  return days === undefined ? '' : `${days.toFixed(1)} 天`;
+});
+const sustainText = computed(() => (sustain.value === Infinity ? '∞' : String(sustain.value)));
+const stockingWarnings = computed(() => {
+  if (!loop) {
+    return [];
+  }
+  const warnings: string[] = [];
+  if (sustain.value < 1) {
+    warnings.push('出发地库存不足 1 轮，请先备货再分配飞船。');
+  }
+  for (const ticker of unbuyableFuel.value) {
+    warnings.push(`${ticker} 在该交易所无订单簿，请手动补给每轮 ${roundBill.value[ticker]} 单位。`);
+  }
+  return warnings;
+});
+async function openStocking() {
+  if (stockingPackage.value === undefined) {
+    return;
+  }
+  stagedDispatch.value = { pkg: stockingPackage.value };
+  await showBuffer('XIT FLEETACT');
+}
 const routeId = ref<string>();
 // 游戏内航线号（RT-XXXX-NNNN）：打开窗口用它，`routeId` 是服务端哈希。
 const routeNaturalId = ref<string>();
@@ -204,6 +369,10 @@ function recordRoute(routeId: string, naturalId: string) {
     shipLabel: candidate.ship.ship.name ?? candidate.ship.ship.registration,
     chainName: name,
     createdAt: Date.now(),
+    loop: loop ? true : undefined,
+    cycleHours: loop ? cycleHours : undefined,
+    repeats: repeats.value,
+    fuelPerRound: loop ? loopFuel : undefined,
     waypoints: waypoints.value.map((waypoint, index) => {
       const reactor = reactorUsagePercents.value[index];
       return {
@@ -338,7 +507,11 @@ function nextWaypoint() {
   stepIndex.value = 0;
   progress.value = { phase: waypoint.value === undefined ? 'done' : 'select' };
   if (progress.value.phase === 'done') {
-    checkLoop();
+    if (loop) {
+      void enableLoop();
+    } else {
+      checkLoop();
+    }
   }
 }
 
@@ -350,6 +523,38 @@ function isAbortError(err: unknown) {
 
 function checkLoop() {
   repeats.value = tile === undefined ? undefined : nativeRouteRepeats(tile);
+}
+
+// 循环开关的提示只保留一条：这个按钮可以反复重试，同一条消息不该逐次堆叠。
+const LOOP_WARNING_PREFIX = '循环开关';
+function setLoopWarning(message: string | undefined) {
+  const others = fuelWarnings.value.filter(x => !x.startsWith(LOOP_WARNING_PREFIX));
+  fuelWarnings.value = message === undefined ? others : [...others, message];
+}
+
+// 循环模式：航点/步骤写完后打开游戏 Loop（SHIP_ROUTES_SET_REPEAT），用响应 repeats 校验。
+// 失败保留单趟航线并提示手动开启——开关与航点/步骤独立，socket 不可用时不阻断已写好的航线。
+async function enableLoop() {
+  if (!loop || routeId.value === undefined) {
+    return;
+  }
+  const id = routeId.value;
+  try {
+    const route = await socketSetRouteRepeats(id, true);
+    repeats.value = route.repeats === true;
+    // 重试成功后清掉上一次的失败提示，避免「已开」和「未生效」同时挂在页面上。
+    setLoopWarning(
+      repeats.value
+        ? undefined
+        : '循环开关未生效（服务端 repeats 仍为关），请在原生 RT 手动开启 Loop。',
+    );
+  } catch (err) {
+    repeats.value = false;
+    setLoopWarning(
+      `循环开关打开失败：${err instanceof Error ? err.message : String(err)}。` +
+        '已保留单趟航线，请在原生 RT 手动开启 Loop 后再分配。',
+    );
+  }
 }
 
 function waypointNames(location: string) {
@@ -486,6 +691,11 @@ async function advanceOnce(retrying: boolean) {
       routeId.value = result.routeId;
       routeNaturalId.value = result.naturalId;
       fuelWarnings.value = [...fuelWarnings.value, ...result.warnings];
+      // 先开 Loop、再落记录：记录里的 repeats 要反映服务端真实结果。顺序反过来时开关
+      // 失败会留下「loop: true + repeats 未定」的记录，卡片把没在循环的航线当循环航线。
+      if (loop) {
+        await enableLoop();
+      }
       recordRoute(result.routeId, result.naturalId);
       progress.value = { phase: 'done' };
     } catch (err) {
@@ -536,6 +746,12 @@ async function advanceOnce(retrying: boolean) {
         ...fuelWarnings.value,
         `未能自动把航线改名为「${name}」，请在原生 RT 里手动改名。`,
       ];
+    }
+    if (loop) {
+      // 界面路径不碰 socket，Loop 只能玩家自己开：先按「未开」记录，
+      // 否则卡片会把没在循环的航线当循环航线展示（周期/备货照列，却发不出未执行告警）。
+      repeats.value = false;
+      setLoopWarning('循环开关未开启：界面路径不自动开启 Loop，请在原生 RT 手动开启后再分配飞船。');
     }
     recordRoute(routeId.value, routeId.value);
     progress.value = { phase: 'select' };
@@ -628,7 +844,40 @@ async function showRoute() {
 <template>
   <div :class="$style.body">
     <h2>生成原生 RT · {{ candidate.ship.ship.name ?? candidate.ship.ship.registration }}</h2>
-    <p>单趟归航。备货和核对燃料后，在原生 RT 手动分配船只。分配即开始执行。</p>
+    <p v-if="loop"
+      >循环执行。写完航点与步骤后自动打开游戏 Loop，按轮备货后在原生 RT
+      分配船只，分配即开始循环（关掉页面仍继续跑）。</p
+    >
+    <p v-else>单趟归航。备货和核对燃料后，在原生 RT 手动分配船只。分配即开始执行。</p>
+    <div v-if="loop" :class="$style.loopPanel">
+      <div
+        >本轮周期：<strong>{{ cycleText || '—' }}</strong
+        >（预计，随出发时刻漂移）</div
+      >
+      <div
+        >每轮补给：<strong>{{ supplyText || '—' }}</strong> 库存（稳态下等于周期<template
+          v-if="capacityText"
+          >；满载可至 {{ capacityText }}</template
+        >）</div
+      >
+      <label
+        >备货轮数
+        <input
+          v-model.number="stockingRoundsInput"
+          :class="$style.fuelInput"
+          type="number"
+          min="1"
+          :max="nMax"
+          step="1"
+          :disabled="busy"
+          aria-label="备货轮数"
+          @change="normalizeStockingRounds" />
+        / {{ nMax }} 轮（一船满载上限）</label
+      >
+      <div
+        >出发地库存可支撑：<strong>{{ sustainText }}</strong> 轮</div
+      >
+    </div>
     <div v-if="routeId === undefined" :class="$style.controls">
       <label
         ><input
@@ -688,6 +937,9 @@ async function showRoute() {
     <ul v-if="fuelWarnings.length > 0" :class="$style.warnings" role="status">
       <li v-for="warning in fuelWarnings" :key="warning">{{ warning }}</li>
     </ul>
+    <ul v-if="stockingWarnings.length > 0" :class="$style.warnings" role="status">
+      <li v-for="warning in stockingWarnings" :key="warning">{{ warning }}</li>
+    </ul>
     <p v-if="routeId"
       >航线 {{ routeId }} · {{ Math.min(waypointIndex + 1, waypoints.length) }}/{{
         waypoints.length
@@ -710,7 +962,15 @@ async function showRoute() {
     <p v-else-if="autoFilling" role="status"> 正在自动填写 · {{ actionLabel }} </p>
     <p v-else-if="progress.phase === 'done'" role="status"
       >航点、燃料消耗和步骤已写入。
-      <template v-if="repeats === false">循环已关闭。请核对备货和飞行参数，再分配飞船。</template>
+      <template v-if="loop">
+        <template v-if="repeats === true"
+          >循环已开启。备货后在原生 RT 分配飞船，分配即开始循环。</template
+        >
+        <template v-else>循环尚未开启，请在原生 RT 手动打开 Loop，核对备货后再分配飞船。</template>
+      </template>
+      <template v-else-if="repeats === false"
+        >循环已关闭。请核对备货和飞行参数，再分配飞船。</template
+      >
       <template v-else>请在原生 RT 确认 Loop 已关闭，核对备货和飞行参数后再分配飞船。</template>
     </p>
     <div :class="$style.controls">
@@ -741,10 +1001,28 @@ async function showRoute() {
       <PrunButton v-if="waitingForNativeStep && !autoFilling" dark @click="cancelNativeStepWait"
         >取消等待</PrunButton
       >
-      <PrunButton v-if="progress.phase === 'done' && repeats !== false" dark @click="checkLoop">
+      <PrunButton
+        v-if="!loop && progress.phase === 'done' && repeats !== false"
+        dark
+        @click="checkLoop">
         复查循环设置
       </PrunButton>
-      <PrunButton v-if="hasPurchase" dark :disabled="busy" @click="openPurchase"
+      <PrunButton
+        v-if="loop && routeId && repeats !== true && !autoFilling"
+        dark
+        :disabled="busy"
+        @click="enableLoop">
+        重试开启循环
+      </PrunButton>
+      <PrunButton
+        v-if="loop"
+        dark
+        :disabled="busy || !stockingPackage"
+        data-tooltip="按 N 轮出发地账单扣掉仓库库存生成 CX 采购包（含每轮 SF/FF）。"
+        @click="openStocking"
+        >打开备货包（{{ stockingRounds }} 轮）</PrunButton
+      >
+      <PrunButton v-else-if="hasPurchase" dark :disabled="busy" @click="openPurchase"
         >打开采购包</PrunButton
       >
       <PrunButton dark :disabled="busy" @click="emit('close')">关闭</PrunButton>
@@ -771,6 +1049,17 @@ async function showRoute() {
 
 .warnings {
   padding-left: 24px;
+  line-height: 1.6;
+}
+
+.loopPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border, #3a3f4b);
+  border-radius: 4px;
   line-height: 1.6;
 }
 

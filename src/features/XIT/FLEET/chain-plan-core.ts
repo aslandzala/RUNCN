@@ -35,6 +35,38 @@ export interface ChainPlanningSnapshot {
   originStock: Record<string, number>;
   purchaseStock: Record<string, number>;
   groupProducedTickers?: Set<string>;
+  // 循环模式：need 按稳态毛需求（天数×日耗，不减库存）。调用方须同时传入毛账单
+  // （bill 不减库存），固定步骤每轮重复执行才不会逐轮少送；avail 口径不变。
+  loop?: boolean;
+}
+
+// 满载补给天数：船舱装满时的补给量能撑几天（重量/体积先到者决定）。
+// 只算选中基地的日耗（原料+劳动力消耗品），不含链上输送与返航货占用的舱容；
+// 任一消耗 ticker 缺重量/体积数据时返回 undefined，宁可不出数也不按偏小的需求报大天数。
+function supplyCapacityDays(planning: ChainPlanningSnapshot): number | undefined {
+  const { capacity, bases, materials } = planning;
+  let dailyWeight = 0;
+  let dailyVolume = 0;
+  for (const base of bases) {
+    for (const [ticker, mat] of Object.entries(base.burn)) {
+      const daily = mat.input + mat.workforce;
+      if (daily <= 0) {
+        continue;
+      }
+      const material = materials[ticker];
+      if (material === undefined) {
+        return undefined;
+      }
+      dailyWeight += material.weight * daily;
+      dailyVolume += material.volume * daily;
+    }
+  }
+  const limits = [
+    dailyWeight > 0 ? capacity.weight / dailyWeight : Infinity,
+    dailyVolume > 0 ? capacity.volume / dailyVolume : Infinity,
+  ];
+  const days = Math.min(...limits);
+  return Number.isFinite(days) ? days : undefined;
 }
 
 export function computeChainPlan(
@@ -138,6 +170,7 @@ export function computeChainPlan(
     loadOnReturn: { weight: 0, volume: 0 },
     overCapacity: false,
   };
+  plan.supplyCapacityDays = supplyCapacityDays(input);
 
   if (rawEdges.length === 0) {
     warnings.push('未检测到基地间的产业链关系，将执行纯补给环线（采购 → 卸货 → 提取 → 归航）。');
@@ -206,16 +239,15 @@ export function computeChainPlan(
     targetDays.set(base.naturalId, base.days);
   }
   // need: 下游 ticker 需求 = 目标天数 × 日耗（原料+消耗品）− 库存。
+  // 循环模式按稳态毛需求（不减库存）：固定步骤每轮重复，减库存会逐轮少送、基地饿死。
   const need = (id: string, ticker: string) => {
     const mat = burns.get(id)![ticker];
     // ticker 不在该基地 burn 中（极少见，例如生产订单刚启动 burn 尚未刷新）→ 按 0 计。
     if (mat === undefined) {
       return 0;
     }
-    return Math.max(
-      0,
-      Math.ceil(targetDays.get(id)! * (mat.input + mat.workforce) - mat.inventory),
-    );
+    const gross = targetDays.get(id)! * (mat.input + mat.workforce);
+    return Math.max(0, Math.ceil(input.loop ? gross : gross - mat.inventory));
   };
   // avail: 上游可提取 = 到达时预计库存 − 自用预留（目标天数 × 自身日耗）。
   const avail = (id: string, ticker: string) => {

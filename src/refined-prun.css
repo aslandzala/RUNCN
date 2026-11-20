@@ -24,8 +24,6 @@ html {
   --rp-inv-cat-other-rgb: 74, 88, 99;
   --rp-inv-cat-bg-alpha: 0.13;
   --rp-inv-cat-line-alpha: 0.25;
-  /* 分类头文字色：自定义主题跟随 --rp-skin-ink 深字；原样主题在下面单独给亮色。 */
-  --rp-inv-cat-text: var(--rp-skin-ink, #26333d);
   /* 自定义主题下浮动缓存窗口的深蓝描边。同样用纯 RGB 三元组避开主题引擎重映射，
      换色只改下面这一行（#193C69）。 */
   --rp-window-border-rgb: 25, 60, 105;
@@ -43,24 +41,6 @@ html {
    变量值是纯 RGB 三元组而非 # / rgb() 颜色字面量；选择器精确写成
    html[data-rp-theme='…']，恰好命中主题引擎的 TOKEN_RULE_RE 而被跳过扫描，
    因此不会被重新映射成中性灰。深浅仍沿用上面全局的 0.13 / 0.25。 */
-/* ── 原样（游戏原生深色）主题的 INV 分类头（R53） ───────────────────────
-   原样主题没有 --rp-skin-ink，上面三套 ::after 会落到兜底 #26333d 深墨字，
-   压在原生 #222 深底上只有 1.23:1，四个分类名基本读不出。这里反过来用亮字 +
-   亮色半透明底，四类色值全部取自本文件 html{} 里已有的游戏原生调色板
-   （橙金强调 / 原生绿 / 原生红 / 原生中性灰），不引入新色相。
-   深底上 0.13 的底色太淡，单独提到 0.22 / 描边 0.55。
-   用 html:not([data-rp-theme]) 精确限定，任何自定义主题都不受影响。 */
-html:not([data-rp-theme]) {
-  --rp-inv-cat-text: #ffc856;
-  --rp-inv-cat-bg-rgb: 255, 176, 0;
-  --rp-inv-cat-inputs-rgb: 255, 176, 0;
-  --rp-inv-cat-outputs-rgb: 92, 184, 92;
-  --rp-inv-cat-consumables-rgb: 217, 83, 79;
-  --rp-inv-cat-other-rgb: 153, 153, 153;
-  --rp-inv-cat-bg-alpha: 0.22;
-  --rp-inv-cat-line-alpha: 0.55;
-}
-
 html[data-rp-theme='light'] {
   --rp-inv-cat-inputs-rgb: 51, 86, 111;
   --rp-inv-cat-outputs-rgb: 47, 107, 72;
@@ -89,11 +69,13 @@ html[data-rp-theme='paper'] {
   --rp-inv-cat-bg-rgb: var(--rp-inv-cat-outputs-rgb);
 }
 
-:is(.rp-command-INV, .rp-command-SHPI) [class*='SectionHeader__container'][data-label='Consumables'] {
+:is(.rp-command-INV, .rp-command-SHPI)
+  [class*='SectionHeader__container'][data-label='Consumables'] {
   --rp-inv-cat-bg-rgb: var(--rp-inv-cat-consumables-rgb);
 }
 
-:is(.rp-command-INV, .rp-command-SHPI) :is(
+:is(.rp-command-INV, .rp-command-SHPI)
+  :is(
     [class*='SectionHeader__container'][data-label='其他'],
     [class*='SectionHeader__container'][data-label='Other']
   ) {
@@ -125,7 +107,7 @@ html[data-rp-font-size='standard'] {
   src: url('~/fonts/fa-regular-400.woff2') format('woff2');
 }
 
-/* ── INV 紧凑布局（可选，默认关闭；按基地 / 船只各自生效，R51） ─────────
+/* ── INV 紧凑布局（可选，默认关闭；按基地 / 船只各自生效） ──────────────
    所有规则都要求**该磁贴自己的 frame** 上带 data-rp-inv-compact='on'：默认（含
    刷新后未开启、以及从未点过按钮的基地）完全没有覆盖，游戏原生 INV / SHPI 保持
    原版排列与图标大小。只有点击该磁贴站点名行右端的双状态排列按钮切到「紧凑排列」
@@ -134,8 +116,8 @@ html[data-rp-font-size='standard'] {
    规则恢复 BRN 分行中文分类头。
    属性挂在 frame（本身带 .rp-command-INV / .rp-command-SHPI 类）上，选择器因此写成
    `html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']`：
-   前面的 html 纯粹是为了与旧版 `html[data-rp-inv-compact] …` 保持同等特异性
-   （0,2,1），避免被游戏自己的同名容器规则抢走。
+   前面的 html 是为了与旧版 `html[data-rp-inv-compact] …` 保持同等特异性 (0,2,1)，
+   避免被游戏自己的同名容器规则抢走。
    放在磁贴内部也意味着 XIT FB 面板里内嵌的 INV / SHPI 磁贴同样按自己的基地走，
    与独立窗口共享同一状态，因为状态 key 是「命令 + 基地 naturalId / 船注册码」。
    off 组里 FB 面板专用那条（含 12px 右边距）仍保留 [data-rp-fb-panel] 前缀，
@@ -147,7 +129,9 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] {
   --rp-inv-icon-size: 34px;
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='InventoryView__grid'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='InventoryView__grid'] {
   justify-content: flex-start !important;
   align-content: flex-start !important;
   margin-bottom: 0 !important;
@@ -156,7 +140,9 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='I
 /* 分组头做成「竖排书脊徽标」：原先只有 14px 宽、0.15 透明底、一条淡色左边框
    和 10px 竖排字，夹在物料图标里几乎认不出是分类。现在换成与独立 INV / FB 普通
    排版共用的半透明底（--rp-inv-cat-bg-rgb，按主题 × 类别分别取值）+ 主题深字粗体竖排中文；四类各有底色，靠颜色与文字双重区分。底色存成纯 RGB 三元组的 var()，主题引擎只扫描 # / rgb() 颜色字面量，不会把这层底色二次重映射。 */
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='SectionHeader__container'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='SectionHeader__container'] {
   display: flex !important;
   align-items: center;
   justify-content: center;
@@ -180,15 +166,17 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='S
   line-height: 1 !important;
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='SectionHeader__container']::after {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='SectionHeader__container']::after {
   content: attr(data-label);
   /* 竖排下 em 框居中不等于墨迹居中：中文竖排时字形在 1em 行盒内整体右偏约 2px
      （实测色框 20px、文字 12px 时左空 6 / 右空 3）。这里用不对称内边距（左 0 右 4）
      把居中的行盒整体左移 2px，墨迹因此落在色框正中；左右内边距之和仍与对称版相等，
      色框宽度不变。 */
   margin: auto;
-  color: var(--rp-inv-cat-text) !important;
-  -webkit-text-fill-color: var(--rp-inv-cat-text) !important;
+  color: var(--rp-skin-ink, #26333d) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink, #26333d) !important;
   font-size: 12px !important;
   font-weight: 700;
   letter-spacing: 2px;
@@ -196,20 +184,30 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='S
   text-shadow: none !important;
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='SectionHeader__container'][data-label='Consumables']::after {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='SectionHeader__container'][data-label='Consumables']::after {
   content: '消耗';
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='SectionHeader__container'][data-label='Inputs']::after {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='SectionHeader__container'][data-label='Inputs']::after {
   content: '投入';
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='SectionHeader__container'][data-label='Outputs']::after {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='SectionHeader__container'][data-label='Outputs']::after {
   content: '产出';
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='SectionHeader__container'][data-label='其他']::after,
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='SectionHeader__container'][data-label='Other']::after {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='SectionHeader__container'][data-label='其他']::after,
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='SectionHeader__container'][data-label='Other']::after {
   content: '其他';
 }
 
@@ -224,26 +222,36 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='S
   padding-right: 0 !important;
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='GridItemView__container'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='GridItemView__container'] {
   width: calc(var(--rp-inv-icon-size) + 10px) !important;
   margin: 2px !important;
   padding: 1px !important;
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='GridItemView__image'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='GridItemView__image'] {
   width: var(--rp-inv-icon-size) !important;
   height: var(--rp-inv-icon-size) !important;
   margin: 1px auto !important;
 }
 
 /* 图标尺寸由游戏写在 style 属性里，必须 !important 才能覆盖。 */
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='MaterialIcon__container'],
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='ColoredIcon__container'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='MaterialIcon__container'],
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='ColoredIcon__container'] {
   width: var(--rp-inv-icon-size) !important;
   height: var(--rp-inv-icon-size) !important;
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='ColoredIcon__container'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='ColoredIcon__container'] {
   font-size: calc(var(--rp-inv-icon-size) * 0.33) !important;
 }
 
@@ -253,7 +261,9 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='C
    以前这里写 display:block 会把它压掉，导致紧凑模式下
    关掉名字无效（非紧凑模式没有覆盖所以正常）。去掉后两种排版都受同一开关控制，
    未开启时由 prun-bugs 的 .gridItemName 保持 display:block。 */
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='GridItemView__name'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='GridItemView__name'] {
   font-size: 9px;
   line-height: 1.1;
   white-space: nowrap;
@@ -265,12 +275,16 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='G
 /* 紧凑小图标里，缩写字母原本居中铺满整个图标，数量角标又绝对定位在右下
    且带不透明底，正好把字母右半边盖住。让字母整体上移、角标收紧成
    小角标，分成「上部字母 / 右下数量」两区，互不遮挡。 */
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='ColoredIcon__labelContainer'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='ColoredIcon__labelContainer'] {
   padding-bottom: 11px !important;
   box-sizing: border-box;
 }
 
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='MaterialIcon__indicator']:not([class*='Container']) {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='MaterialIcon__indicator']:not([class*='Container']) {
   padding: 1px 2px !important;
   font-size: 9px !important;
   line-height: 1 !important;
@@ -280,7 +294,9 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='M
 /* 数量角标只留数字，不要外框：物料图标自身已有一圈边框，角标再描一圈会
    形成「内外框」。主题层已在 html[data-rp-theme] 统一去掉描边（theme.ts），
    这里在紧凑作用域内再加一道保险，防止游戏原生规则把边框带回来。 */
-html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='MaterialIcon__indicator'] {
+html
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on']
+  [class*='MaterialIcon__indicator'] {
   border: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
@@ -325,8 +341,10 @@ html :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='on'] [class*='M
 html:not([data-rp-theme]) [data-rp-ui='flt-autoload-toggle'][data-rp-autoload='on'],
 html:not([data-rp-theme]) [data-rp-ui='blu-show-hidden-toggle'][data-rp-blu-hidden-active='on'],
 html:not([data-rp-theme]) [data-rp-ui][data-rp-selected='on'],
-html[data-rp-theme][data-rp-theme][data-rp-theme] [data-rp-ui='flt-autoload-toggle'][data-rp-autoload='on'],
-html[data-rp-theme][data-rp-theme][data-rp-theme] [data-rp-ui='blu-show-hidden-toggle'][data-rp-blu-hidden-active='on'],
+html[data-rp-theme][data-rp-theme][data-rp-theme]
+  [data-rp-ui='flt-autoload-toggle'][data-rp-autoload='on'],
+html[data-rp-theme][data-rp-theme][data-rp-theme]
+  [data-rp-ui='blu-show-hidden-toggle'][data-rp-blu-hidden-active='on'],
 html[data-rp-theme][data-rp-theme][data-rp-theme] [data-rp-ui][data-rp-selected='on'] {
   text-decoration: underline !important;
   text-decoration-thickness: 2px !important;
@@ -446,7 +464,8 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] [data-rp-ui][data-rp-selected=
    样式的 SFC），不必逐文件改；原样主题与其它游戏原生界面不受影响。
    ProgressBar* 把同名变量当进度条填充色用，原先被污染成近白同样看不见，
    重定义成深色语义色后反而恢复可见，不是副作用。 */
-html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) {
+html[data-rp-theme][data-rp-theme][data-rp-theme]
+  :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) {
   /* 局部重定义：只在上面两类窗口内生效，其它游戏原生界面不受影响。 */
   --rp-color-accent-primary: var(--rp-skin-selection, currentColor);
   --rp-color-text: var(--rp-skin-ink, currentColor);
@@ -464,9 +483,31 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='
    禁用控件、以及 CONTS 的 dimmed 项（配 grayscale 表示条件未满足）。 */
 html[data-rp-theme][data-rp-theme][data-rp-theme]
   :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
-  :is(span, div, td, th, p, label, small, b, strong, em, a, li, h1, h2, h3, h4, h5, h6, button, summary, details):not(
-    [class*='grip']
-  ):not([class*='Grip']):not([class*='dimmed']):not([disabled]):not([class*='disabled']) {
+  :is(
+    span,
+    div,
+    td,
+    th,
+    p,
+    label,
+    small,
+    b,
+    strong,
+    em,
+    a,
+    li,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    button,
+    summary,
+    details
+  ):not([class*='grip']):not([class*='Grip']):not([class*='dimmed']):not([disabled]):not(
+    [class*='disabled']
+  ) {
   opacity: 1 !important;
 }
 
@@ -488,11 +529,14 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] .rp-tooltip-icon {
 html[data-rp-theme][data-rp-theme][data-rp-theme]
   :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
   :is(input, textarea)::placeholder {
-  color: color-mix(in srgb, var(--rp-skin-muted, currentColor) 45%, transparent) !important;
+  color: var(--rp-skin-muted, currentColor) !important;
   opacity: 1 !important;
 }
 
-html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) table th {
+html[data-rp-theme][data-rp-theme][data-rp-theme]
+  :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
+  table
+  th {
   color: var(--rp-skin-ink, inherit) !important;
   opacity: 1 !important;
   background-color: var(--rp-skin-panel-strong, transparent) !important;
@@ -518,7 +562,14 @@ html[data-rp-theme][data-rp-theme][data-rp-theme]:where(:not([data-rp-borders='o
    哈希类名里保留的语义片段，只改 border-color，不动背景与盒模型。 */
 html[data-rp-theme][data-rp-theme][data-rp-theme]
   :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
-  :is([class*='card'], [class*='Card'], [class*='panel'], [class*='Panel'], [class*='section'], [class*='Section']) {
+  :is(
+    [class*='card'],
+    [class*='Card'],
+    [class*='panel'],
+    [class*='Panel'],
+    [class*='section'],
+    [class*='Section']
+  ) {
   border-color: var(--rp-skin-border, currentColor) !important;
 }
 
@@ -544,8 +595,7 @@ html[data-rp-theme][data-rp-theme][data-rp-theme]
 [data-govh-projects] tbody th[scope='row'] {
   background-color: transparent !important;
 }
-html[data-rp-theme][data-rp-theme][data-rp-theme]
-  [data-govh-projects] tbody th[scope='row'] {
+html[data-rp-theme][data-rp-theme][data-rp-theme] [data-govh-projects] tbody th[scope='row'] {
   background-color: transparent !important;
 }
 
@@ -564,7 +614,9 @@ html[data-rp-theme][data-rp-theme][data-rp-theme]
 
 /* 空态 / 提示单元格常用内联 opacity 冲淡文字，只把 opacity 拉回 1，
    文字色仍由原规则或上面的 token 决定，不强行改语义色。 */
-html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN']) :is(td, th)[style*='opacity'] {
+html[data-rp-theme][data-rp-theme][data-rp-theme]
+  :is(.rp-command-XIT, [class*='rp-command-FIN'], [class*='rp-command-CORPFIN'])
+  :is(td, th)[style*='opacity'] {
   opacity: 1 !important;
 }
 
@@ -589,7 +641,8 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='
   scrollbar-color: auto !important;
 }
 
-:is(.rp-command-INV, .rp-command-SHPI) :is([class*='ScrollView__track'], [class*='ScrollView__thumb']) {
+:is(.rp-command-INV, .rp-command-SHPI)
+  :is([class*='ScrollView__track'], [class*='ScrollView__thumb']) {
   display: none !important;
 }
 
@@ -634,7 +687,11 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] :is(.rp-command-XIT, [class*='
    animation / background-position，保留「运行中滚动、完成静止」。
    重复 html[data-rp-theme] 抬到 (0,4,x)，压过引擎 (0,1,0) 的 !important。 */
 html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__progress'] {
-  background-color: color-mix(in srgb, var(--rp-skin-action-unload, currentColor) 30%, transparent) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--rp-skin-action-unload, currentColor) 30%,
+    transparent
+  ) !important;
   background-image: repeating-linear-gradient(
     -45deg,
     transparent,
@@ -645,7 +702,11 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__progr
 }
 
 html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__success'] {
-  background-color: color-mix(in srgb, var(--rp-skin-action-flight, currentColor) 30%, transparent) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--rp-skin-action-flight, currentColor) 30%,
+    transparent
+  ) !important;
   background-image: repeating-linear-gradient(
     -45deg,
     transparent,
@@ -656,7 +717,11 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__succe
 }
 
 html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__error'] {
-  background-color: color-mix(in srgb, var(--rp-skin-action-fuel, currentColor) 30%, transparent) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--rp-skin-action-fuel, currentColor) 30%,
+    transparent
+  ) !important;
   background-image: repeating-linear-gradient(
     -45deg,
     transparent,
@@ -676,8 +741,7 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__error
    网格 space-around、排序控件一律不动（用 inset box-shadow 描边，不占盒模型尺寸）。
    :not([data-rp-fb-panel] *) 排除 XIT FB 面板内的 INV 磁贴——那里由紧凑 / 普通两套
    规则负责，不叠加。底色用共用 --rp-inv-cat-bg-rgb 纯 RGB var()，不会被主题引擎
-   二次重映射；文字色走 --rp-inv-cat-text（自定义主题回落到 --rp-skin-ink 深字，
-   原样主题单独给游戏原生橙金亮字，见 R53）。 */
+   二次重映射；文字色走 --rp-skin-ink，浅色 / 暖色 / 原样主题自动跟随。 */
 .rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label] {
   background-color: rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-bg-alpha)) !important;
   background-image: none !important;
@@ -690,8 +754,8 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__error
 
 .rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label]::after {
   content: attr(data-label);
-  color: var(--rp-inv-cat-text) !important;
-  -webkit-text-fill-color: var(--rp-inv-cat-text) !important;
+  color: var(--rp-skin-ink, #26333d) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink, #26333d) !important;
   font-size: 12px !important;
   font-weight: 700;
   letter-spacing: 2px;
@@ -699,20 +763,25 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__error
   text-shadow: none !important;
 }
 
-.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Consumables']::after {
+.rp-command-INV:not([data-rp-fb-panel] *)
+  [class*='SectionHeader__container'][data-label='Consumables']::after {
   content: '消耗';
 }
 
-.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Inputs']::after {
+.rp-command-INV:not([data-rp-fb-panel] *)
+  [class*='SectionHeader__container'][data-label='Inputs']::after {
   content: '投入';
 }
 
-.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Outputs']::after {
+.rp-command-INV:not([data-rp-fb-panel] *)
+  [class*='SectionHeader__container'][data-label='Outputs']::after {
   content: '产出';
 }
 
-.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='其他']::after,
-.rp-command-INV:not([data-rp-fb-panel] *) [class*='SectionHeader__container'][data-label='Other']::after {
+.rp-command-INV:not([data-rp-fb-panel] *)
+  [class*='SectionHeader__container'][data-label='其他']::after,
+.rp-command-INV:not([data-rp-fb-panel] *)
+  [class*='SectionHeader__container'][data-label='Other']::after {
   content: '其他';
 }
 
@@ -726,7 +795,10 @@ html[data-rp-theme][data-rp-theme][data-rp-theme] [class*='ActionFeedback__error
    z-index:2 的 ScrollView__track-vertical 底下被盖住（独立窗口网格天然短 10px，
    没有此问题）。这里给色条让出 12px 右边距，右端停在轨道左侧约 3px，
    与独立 INV 的观感一致；紧凑模式的 20px 竖徽标不走这条规则。 */
-html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off'] [class*='SectionHeader__container'][data-label] {
+html
+  [data-rp-fb-panel]
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off']
+  [class*='SectionHeader__container'][data-label] {
   margin-right: 12px !important;
   background-color: rgba(var(--rp-inv-cat-bg-rgb), var(--rp-inv-cat-bg-alpha)) !important;
   background-image: none !important;
@@ -737,10 +809,13 @@ html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compa
   line-height: 1 !important;
 }
 
-html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off'] [class*='SectionHeader__container'][data-label]::after {
+html
+  [data-rp-fb-panel]
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off']
+  [class*='SectionHeader__container'][data-label]::after {
   content: attr(data-label);
-  color: var(--rp-inv-cat-text) !important;
-  -webkit-text-fill-color: var(--rp-inv-cat-text) !important;
+  color: var(--rp-skin-ink, #26333d) !important;
+  -webkit-text-fill-color: var(--rp-skin-ink, #26333d) !important;
   font-size: 12px !important;
   font-weight: 700;
   letter-spacing: 2px;
@@ -748,20 +823,35 @@ html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compa
   text-shadow: none !important;
 }
 
-html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off'] [class*='SectionHeader__container'][data-label='Consumables']::after {
+html
+  [data-rp-fb-panel]
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off']
+  [class*='SectionHeader__container'][data-label='Consumables']::after {
   content: '消耗';
 }
 
-html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off'] [class*='SectionHeader__container'][data-label='Inputs']::after {
+html
+  [data-rp-fb-panel]
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off']
+  [class*='SectionHeader__container'][data-label='Inputs']::after {
   content: '投入';
 }
 
-html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off'] [class*='SectionHeader__container'][data-label='Outputs']::after {
+html
+  [data-rp-fb-panel]
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off']
+  [class*='SectionHeader__container'][data-label='Outputs']::after {
   content: '产出';
 }
 
-html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off'] [class*='SectionHeader__container'][data-label='其他']::after,
-html [data-rp-fb-panel] :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off'] [class*='SectionHeader__container'][data-label='Other']::after {
+html
+  [data-rp-fb-panel]
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off']
+  [class*='SectionHeader__container'][data-label='其他']::after,
+html
+  [data-rp-fb-panel]
+  :is(.rp-command-INV, .rp-command-SHPI)[data-rp-inv-compact='off']
+  [class*='SectionHeader__container'][data-label='Other']::after {
   content: '其他';
 }
 
@@ -834,11 +924,6 @@ html[data-rp-theme='ceramic-colorful'] {
   --rp-cc-text-disabled: #737a72;
   /* 「临近阈值」告警字色（R45）：本主题链接是深蓝，告警用深橙拉开冷暖。 */
   --rp-cc-warn-accent: #b45309;
-
-  /* 呼吸灯专用三档（R52）：取本主题主色 / 次色相 / 危险色，不复用状态色板。 */
-  --rp-cc-pulse-success: #2f6b62;
-  --rp-cc-pulse-secondary: #7f5522;
-  --rp-cc-pulse-danger: #a4305c;
 
   /* 边框 / 焦点 */
   --rp-cc-border-subtle: #e4dccb;
@@ -975,6 +1060,173 @@ html[data-rp-theme='ceramic-colorful'] body {
   color: var(--rp-cc-text-primary);
 }
 
+/* ── Claude 暖陶（claude）：token 模式，仿 Claude 暖米白 + 陶土橘配色 ────
+   画布暖米白 → 卡片象牙白 → 表头深米色；陶土橘 #d97757 是主强调色的色相
+   基准，落到窗口描边 / 选中光晕 / 装饰线时加深到 #cf6a45（选中态边框也要
+   够 3:1），正文级陶土文字再加深到 #a84c2c 保证 WCAG 4.5:1。八类功能彩色
+   按色相带收敛为低饱和大地色系，同类同色。
+   所有颜色字面量只在此精确块内（R01）。变量名与 ceramic 完全一致，
+   由 buildComponentCss('claude') 与 buildCeramicSkin() 复用。 */
+html[data-rp-theme='claude'] {
+  color-scheme: light;
+
+  /* 背景 */
+  --rp-cc-canvas: #f0eee6;
+  --rp-cc-surface: #faf9f5;
+  --rp-cc-surface-alt: #e8e6dc;
+  --rp-cc-overlay: rgba(31, 30, 29, 0.55);
+  --rp-cc-shadow-card: 0 1px 2px rgba(60, 54, 40, 0.08), 0 4px 12px rgba(60, 54, 40, 0.07);
+  --rp-cc-shadow-popover: 0 8px 24px rgba(60, 54, 40, 0.2);
+
+  /* 文字 */
+  --rp-cc-text-primary: #1f1e1d;
+  --rp-cc-text-secondary: #4a4741;
+  --rp-cc-text-muted: #6e6a61;
+  --rp-cc-text-inverse: #faf9f5;
+  --rp-cc-text-link: #a84c2c;
+  --rp-cc-text-disabled: #8a857c;
+  /* 「临近阈值」告警字色（R45）：本主题链接是陶土橘，告警用深金拉开色相。 */
+  --rp-cc-warn-accent: #8f5f00;
+
+  /* 边框 / 焦点 */
+  --rp-cc-border-subtle: #e3e1d5;
+  --rp-cc-border-default: #948f80;
+  --rp-cc-border-strong: #7a766a;
+  --rp-cc-border-focus: #c15f3c;
+  --rp-cc-ring: #c15f3c;
+  --rp-cc-ring-width: 2px;
+  --rp-cc-ring-offset: 2px;
+  --rp-cc-ring-halo: rgba(193, 95, 60, 0.2);
+
+  /* 按钮：按类型统一，跨页面同色 */
+  --rp-cc-btn-primary-bg: #b0512f;
+  --rp-cc-btn-primary-text: #faf9f5;
+  --rp-cc-btn-primary-border: #8f3f22;
+  --rp-cc-btn-primary-hover: #9c4626;
+  --rp-cc-btn-primary-active: #873c20;
+  --rp-cc-btn-secondary-bg: #faf9f5;
+  --rp-cc-btn-secondary-text: #1f1e1d;
+  --rp-cc-btn-secondary-border: #948f80;
+  --rp-cc-btn-secondary-hover: #f0eee6;
+  --rp-cc-btn-secondary-active: #e8e6dc;
+  --rp-cc-btn-danger-bg: #a83a32;
+  --rp-cc-btn-danger-text: #faf9f5;
+  --rp-cc-btn-danger-border: #8a2f28;
+  --rp-cc-btn-danger-hover: #93312a;
+  --rp-cc-btn-danger-active: #7d2923;
+  --rp-cc-btn-ghost-bg: transparent;
+  --rp-cc-btn-ghost-text: #a84c2c;
+  --rp-cc-btn-ghost-border: transparent;
+  --rp-cc-btn-ghost-hover: #f5e9e2;
+  --rp-cc-btn-ghost-active: #eeddd2;
+  --rp-cc-btn-link-bg: transparent;
+  --rp-cc-btn-link-text: #a84c2c;
+  --rp-cc-btn-link-border: transparent;
+  --rp-cc-btn-link-hover: #f7e8e0;
+  --rp-cc-btn-link-active: #f0dcd0;
+  --rp-cc-btn-disabled-bg: #e8e6dc;
+  --rp-cc-btn-disabled-text: #8a857c;
+  --rp-cc-btn-disabled-border: #d6d3c6;
+
+  /* 控件：输入/下拉/复选/单选/开关/滑块共用 */
+  --rp-cc-control-bg: #fffefb;
+  --rp-cc-control-alt-bg: #f0eee6;
+  --rp-cc-control-text: #1f1e1d;
+  --rp-cc-control-placeholder: #6e6a61;
+  --rp-cc-control-border: #948f80;
+  --rp-cc-control-border-strong: #7a766a;
+  --rp-cc-control-focus: #c15f3c;
+  --rp-cc-control-checked: #c15f3c;
+  --rp-cc-control-track: #e3e1d5;
+  --rp-cc-control-thumb: #c15f3c;
+  --rp-cc-control-disabled-bg: #f0eee6;
+  --rp-cc-control-disabled-text: #8a857c;
+  --rp-cc-tooltip-bg: #262624;
+  --rp-cc-tooltip-text: #faf9f5;
+  --rp-cc-tooltip-border: #4a4741;
+
+  /* 表格 */
+  --rp-cc-table-head-bg: #f0eee6;
+  --rp-cc-table-head-text: #4a4741;
+  --rp-cc-table-row: #faf9f5;
+  --rp-cc-table-row-alt: #f5f4ee;
+  --rp-cc-table-row-hover: #efece1;
+  --rp-cc-table-row-selected: #f3e4db;
+  --rp-cc-table-border: #e3e1d5;
+  --rp-cc-table-text: #1f1e1d;
+
+  /* 状态：底色 + 深字 + 边框；不单靠颜色，界面自带文字/图标 */
+  --rp-cc-status-success-bg: #e7efe3;
+  --rp-cc-status-success-text: #3d6b35;
+  --rp-cc-status-success-border: #9dbb8f;
+  --rp-cc-status-warning-bg: #f7ecd4;
+  --rp-cc-status-warning-text: #7a5a10;
+  --rp-cc-status-warning-border: #d3b264;
+  --rp-cc-status-danger-bg: #f6e3df;
+  --rp-cc-status-danger-text: #9c3a30;
+  --rp-cc-status-danger-border: #d8a196;
+  --rp-cc-status-info-bg: #e4ebf1;
+  --rp-cc-status-info-text: #33566e;
+  --rp-cc-status-info-border: #9fb6c6;
+  /* 呼吸灯三档：青绿 / 暖琥珀 / 砖红，与大地色系一致。 */
+  --rp-cc-pulse-success: #2f6b62;
+  --rp-cc-pulse-secondary: #8a5a1c;
+  --rp-cc-pulse-danger: #a83a32;
+
+  /* 分类 1..8 / 图表同序号同色：浅底深字 + 低饱和大地色图形。
+     序号按色相带排列（1 青 2 青绿 3 橄榄 4 琥珀/陶土 5 砖红 6 紫 7 蓝 8 玫红），
+     与 theme-ceramic.ts 的 ceramicHueBands() 映射一致。 */
+  --rp-cc-cat-1-bg: #e3eef2;
+  --rp-cc-cat-1-text: #2a5666;
+  --rp-cc-cat-1-border: #9dc0cb;
+  --rp-cc-cat-1-chart: #4e8fa3;
+  --rp-cc-cat-2-bg: #e4efe7;
+  --rp-cc-cat-2-text: #2c5544;
+  --rp-cc-cat-2-border: #9fc2b0;
+  --rp-cc-cat-2-chart: #4f8a70;
+  --rp-cc-cat-3-bg: #eef0dc;
+  --rp-cc-cat-3-text: #4c5122;
+  --rp-cc-cat-3-border: #bcc186;
+  --rp-cc-cat-3-chart: #7d8440;
+  /* cat-4 图表色比品牌陶土 #d97757 略深，保证浅底上图形 ≥3:1。 */
+  --rp-cc-cat-4-bg: #f7e8e0;
+  --rp-cc-cat-4-text: #8f3f22;
+  --rp-cc-cat-4-border: #e0aa94;
+  --rp-cc-cat-4-chart: #cf6a45;
+  --rp-cc-cat-5-bg: #f6e4df;
+  --rp-cc-cat-5-text: #7c352c;
+  --rp-cc-cat-5-border: #d9a396;
+  --rp-cc-cat-5-chart: #b2544a;
+  --rp-cc-cat-6-bg: #ece7f3;
+  --rp-cc-cat-6-text: #4d3f6b;
+  --rp-cc-cat-6-border: #b9abd2;
+  --rp-cc-cat-6-chart: #7c6bab;
+  --rp-cc-cat-7-bg: #e6eaf2;
+  --rp-cc-cat-7-text: #35486a;
+  --rp-cc-cat-7-border: #a6b4cd;
+  --rp-cc-cat-7-chart: #5b759f;
+  --rp-cc-cat-8-bg: #f4e7ec;
+  --rp-cc-cat-8-text: #6f3d52;
+  --rp-cc-cat-8-border: #d5a9bb;
+  --rp-cc-cat-8-chart: #b06a86;
+  /* 进度条主/次填充：由 cat-1 / cat-2 图表色减半深度得到（R33），专用于
+     <progress> 容量条（FLT 燃料条等），与图表实色分离。 */
+  --rp-cc-progress-primary: #a7c7d1;
+  --rp-cc-progress-secondary: #a7c5b8;
+  --rp-cc-chart-grid: #ddd9cc;
+  --rp-cc-chart-axis: #6e6a61;
+  --rp-cc-chart-label: #4a4741;
+  /* 指示线同时是选中态边框（theme.ts 的 INDICATOR_LINE_RE），要 ≥3:1；
+     品牌陶土 #d97757 只有 2.96:1，取 cat-4 图表色。 */
+  --rp-cc-accent-line: #cf6a45;
+}
+
+/* 首屏防闪：theme.ts 尚未注入覆盖表时，先把整页底色与正文色定下来。 */
+html[data-rp-theme='claude'] body {
+  background-color: var(--rp-cc-canvas);
+  color: var(--rp-cc-text-primary);
+}
+
 /* ── 星海霓虹（nebula）：token 模式，深空星海科幻配色 ──────────────────
    近黑深蓝底 + 半透明玻璃面板；青蓝霓虹（#35c4e8）作为唯一主强调色贯穿
    选中态/主按钮/边框发光；金/绿/红/紫/青绿/玫红/蓝/黄八类功能彩色各司其职、
@@ -1001,11 +1253,6 @@ html[data-rp-theme='nebula'] {
   /* 「临近阈值」告警字色（R45）：船名等元素在本主题实际渲染成金色（#f5d27a），
      状态 warning 的琥珀与它几乎同色，故改用更红更亮的橙。 */
   --rp-cc-warn-accent: #ff7a45;
-
-  /* 呼吸灯专用三档（R52）：霓虹青蓝主色 / 蓝紫次色 / 亮橙危险色。 */
-  --rp-cc-pulse-success: #35c4e8;
-  --rp-cc-pulse-secondary: #6f8bd6;
-  --rp-cc-pulse-danger: #ff7a45;
 
   /* 边框 / 焦点 */
   --rp-cc-border-subtle: #16263a;
@@ -1134,102 +1381,116 @@ html[data-rp-theme='nebula'] {
   --rp-cc-accent-line: #35c4e8;
 }
 
-/* ── 深色主题专属覆盖：游戏原生浅色容器/文字染深，使深色主题真正可读 ──
+/* ── 深色 token 主题的通用覆盖：游戏原生浅色容器/文字染深 ──────────────
    现有组件映射只覆盖 Window/TileFrame(table)/button/form 等已知类；顶部菜单栏
    Head__container、状态栏 HeadItem、提醒面板 AlertListItem、窗口头/开关
    TileFrame__header/TileFrame__controls、侧栏 Frame__*、财务/流动资产面板、
    右键菜单 ContextControls、Tile 等仍是游戏原生浅底+原生深色字。浅色主题靠
-   「深字配浅底」侥幸可读；深色主题必须把这批区域也染深。
+   「深字配浅底」侥幸可读；深色 token 主题（nebula / starforge）必须把这批区域也染深。
    游戏对这些类普遍用 !important，故统一用三重 [data-rp-theme] 把特异性抬到
-   (0,3,x) 稳压；选择器首段用 :is() 列出全部深色主题，颜色一律 var(--rp-cc-*)，
-   每套深色主题用自己的色板，新增深色主题只需在 :is() 里补一个 id（R44/R54）。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is(
-  [class*='Head__container'],
-  [class*='Head__contextAndScreens'],
-  [class*='HeadItem__container'],
-  [class*='ScreenControls'],
-  [class*='AlertListItem__container'],
-  [class*='AlertListItem__content'],
-  [class*='TileFrame__header'],
-  [class*='TileFrame__controls'],
-  [class*='Tile__tile'],
-  [class*='Frame__uiToggles'],
-  [class*='Frame__toggle'],
-  [class*='Frame__title'],
-  [class*='FinanceOverviewPanel__header'],
-  [class*='FinanceOverviewPanel__label'],
-  [class*='FinanceOverviewPanel__row'],
-  [class*='LiquidAssetsPanel__row'],
-  [class*='LiquidAssetsPanel__number'],
-  [class*='ContextControls__container'],
-  [class*='ContextControls__item'],
-  [class*='ContextControls__cmd'],
-  [class*='GridItemView__container'],
-  [class*='ServerNotifications__container'],
-  [class*='MainState__container'],
-  [class*='Frame__foot'],
-  [class*='StaticInput__static'],
-  [class*='MenuHeadItem__menu'],
-  [class*='MenuHeadItem__selector']
-) {
+   (0,3,x) 稳压；仅作用于 nebula / starforge，不动其它主题。 */
+html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is(
+    [class*='Head__container'],
+    [class*='Head__contextAndScreens'],
+    [class*='HeadItem__container'],
+    [class*='ScreenControls'],
+    [class*='AlertListItem__container'],
+    [class*='AlertListItem__content'],
+    [class*='TileFrame__header'],
+    [class*='TileFrame__controls'],
+    [class*='Tile__tile'],
+    [class*='Frame__uiToggles'],
+    [class*='Frame__toggle'],
+    [class*='Frame__title'],
+    [class*='FinanceOverviewPanel__header'],
+    [class*='FinanceOverviewPanel__label'],
+    [class*='FinanceOverviewPanel__row'],
+    [class*='LiquidAssetsPanel__row'],
+    [class*='LiquidAssetsPanel__number'],
+    [class*='ContextControls__container'],
+    [class*='ContextControls__item'],
+    [class*='ContextControls__cmd'],
+    [class*='GridItemView__container'],
+    [class*='ServerNotifications__container'],
+    [class*='MainState__container'],
+    [class*='Frame__foot'],
+    [class*='StaticInput__static'],
+    [class*='MenuHeadItem__menu'],
+    [class*='MenuHeadItem__selector']
+  ) {
   background-color: var(--rp-cc-surface) !important;
   color: var(--rp-cc-text-primary) !important;
 }
 /* 顶栏/侧栏的「小字变体」（NewsHeadItem__count 等计数、License 编码、Help 进度、
    提醒计数、屏幕名）直接改成浅色：不依赖后代匹配，直接命中类名，避免被游戏
    更具体的深色字规则压住。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is(
-  [class*='HeadItem__label'],
-  [class*='NewsHeadItem__'],
-  [class*='LicenseHeadItem__'],
-  [class*='HelpHeadItem__'],
-  [class*='AlertsHeadItem__'],
-  [class*='ScreenControls__currentScreenName'],
-  [class*='Frame__title'],
-  [class*='Frame__toggleLabel']
-) {
+html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is(
+    [class*='HeadItem__label'],
+    [class*='NewsHeadItem__'],
+    [class*='LicenseHeadItem__'],
+    [class*='HelpHeadItem__'],
+    [class*='AlertsHeadItem__'],
+    [class*='ScreenControls__currentScreenName'],
+    [class*='Frame__title'],
+    [class*='Frame__toggleLabel']
+  ) {
   color: var(--rp-cc-text-primary) !important;
 }
 /* Tile 内容区基色：游戏给 .TileFrame__body 设了 color:#3A3934 !important，导致
    所有「无自身颜色」的文字（物品名、货舱指针等）都继承成深色压深底。用更高
    特异性把基色改成浅色。带自身 color 规则的元素（ColoredValue 语义色、状态色等）
    是后代规则、压过继承，故不受影响。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is(
-  [class*='TileFrame__body'],
-  [class*='TileControls__control'],
-  [class*='TileContextHelp'],
-  [class*='MaterialIcon__neutral'],
-  [class*='AdminMaterialItemView__name'],
-  [class*='ShipStore__pointer'],
-  [class*='ShipStore__store'],
-  [class*='ShipPool__shipLabel'],
-  [class*='PlanetRow__shipLabel'],
-  [class*='closeAllBtn']
-) {
+html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is(
+    [class*='TileFrame__body'],
+    [class*='TileControls__control'],
+    [class*='TileContextHelp'],
+    [class*='MaterialIcon__neutral'],
+    [class*='AdminMaterialItemView__name'],
+    [class*='ShipStore__pointer'],
+    [class*='ShipStore__store'],
+    [class*='ShipPool__shipLabel'],
+    [class*='PlanetRow__shipLabel'],
+    [class*='closeAllBtn']
+  ) {
   color: var(--rp-cc-text-primary) !important;
 }
-/* 上述容器内游戏原生的「深色字」类（colors__*/type__*/fonts__*/HeadItem 文本/
-   侧栏标题与开关文字/提醒时间）强制改为浅色，否则深字压在刚染深的深底上仍不可见。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is(
-  [class*='Head__container'],
-  [class*='HeadItem__container'],
-  [class*='ScreenControls'],
-  [class*='AlertListItem__container'],
-  [class*='AlertListItem__content'],
-  [class*='FinanceOverviewPanel'],
-  [class*='LiquidAssetsPanel'],
-  [class*='ContextControls'],
-  [class*='Frame__sidebar']
-) :is([class*='colors__text'], [class*='type__type'], [class*='fonts__font'],
-       [class*='HeadItem__'], [class*='AlertListItem__time'], [class*='ScreenControls__'],
-       [class*='Frame__title'], [class*='Frame__toggleLabel']) {
+/* 上述容器内游戏原生的「深色字」类（colors__*/
+type__*/fonts__*/HeadItem
+  文本/
+  侧栏标题与开关文字/提醒时间）强制改为浅色，否则深字压在刚染深的深底上仍不可见。
+  */
+  html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is(
+    [class*='Head__container'],
+    [class*='HeadItem__container'],
+    [class*='ScreenControls'],
+    [class*='AlertListItem__container'],
+    [class*='AlertListItem__content'],
+    [class*='FinanceOverviewPanel'],
+    [class*='LiquidAssetsPanel'],
+    [class*='ContextControls'],
+    [class*='Frame__sidebar']
+  )
+  :is(
+    [class*='colors__text'],
+    [class*='type__type'],
+    [class*='fonts__font'],
+    [class*='HeadItem__'],
+    [class*='AlertListItem__time'],
+    [class*='ScreenControls__'],
+    [class*='Frame__title'],
+    [class*='Frame__toggleLabel']
+  ) {
   color: var(--rp-cc-text-primary) !important;
 }
 /* 链接 / ColoredValue / 通知标签：保留各自语义色，仅把游戏原生不透明浅底变透明，
    露出其下已被染深的窗口/面板深底。三重 [data-rp-theme] 把特异性抬到 (0,3,1)，
    压过游戏带 !important 的同类规则。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is([class*='Link__link'], a[href],
-  [class*='ColoredValue'], [class*='notification-type-label']) {
+html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is([class*='Link__link'], a[href], [class*='ColoredValue'], [class*='notification-type-label']) {
   background-color: transparent !important;
 }
 /* 表格单元格：游戏原生斑马纹规则是
@@ -1237,21 +1498,23 @@ html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][da
    仅写 :is(td,th) 只有 (0,1,2)，同 !important 时被它压掉、td 仍是浅底。
    这里用三重 [data-rp-theme] 把特异性抬到 (0,3,2) 稳压它，同时保留透明，
    让表格自身的深色底与 TR 上的斑马纹/选中行透出来。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is(td, th) {
+html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is(td, th) {
   background-color: transparent !important;
 }
 /* 表格线：引擎把游戏原生「暖米色」表格边框按色相重映射成 cat-7 金 #f5c542，
    深色主题下会形成刺眼的亮金网格（GOVH / FLEET 等左栏表格最明显）。把所有
    表格系元素的边框统一收敛成低调深色线。分类表头的彩色边界用 box-shadow
    表达（见组件 CSS），不是 border，故不受本条影响。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is(td, th, tr, tbody, thead, tfoot, table) {
+html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is(td, th, tr, tbody, thead, tfoot, table) {
   border-color: var(--rp-cc-border-subtle) !important;
 }
 /* FLEET XIT（ShipPool 船池 / PlanetRow 行星行）：横向行分隔线会一直画到右侧
    空白区，每行都留一条线、显得碎。去掉横向行线（保留纵向拖放列），空白区更干净。 */
-html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme] :is(
-  [class*='rp-ShipPool'], [class*='rp-PlanetRow'], [class*='rp-grip']
-) :is(tr, td, th, tbody, thead, tfoot) {
+html:is([data-rp-theme='nebula'], [data-rp-theme='starforge'])[data-rp-theme][data-rp-theme]
+  :is([class*='rp-ShipPool'], [class*='rp-PlanetRow'], [class*='rp-grip'])
+  :is(tr, td, th, tbody, thead, tfoot) {
   border-top-color: transparent !important;
   border-bottom-color: transparent !important;
 }
@@ -1262,13 +1525,23 @@ html[data-rp-theme='nebula'] body {
   color: var(--rp-cc-text-primary);
 }
 
+/* BURN 星球行右侧的「命令」列：默认显示；由 basic/burn-command-column 功能
+   在 <html> 上加 data-rp-burn-commands 控制，开关在 XIT SET → 功能。 */
+[data-rp-burn-commands-col] {
+  display: none;
+}
+
+html[data-rp-burn-commands] [data-rp-burn-commands-col] {
+  display: table-cell;
+}
+
 /* ── 星铸工业（starforge）：token 模式，群星工业纪元深空控制台 ─────────
    色值全部取自原型实机采样：画布 #0b121b、面板 #1a2936 / #253a48、
    顶栏 #101923、细线 #23313e、正文 #d7e1e8、次级 #8498a9；橙金 #f4ac69
    是唯一主强调色（标题 / 主按钮 / 选中 / 焦点环 / 分类 4），其余
    青绿 / 蓝 / 紫 / 黄绿 / 橙红 / 玫红只用于分类与状态色块，同类同色。
    8 个色相带按 hue 顺序排列（cyan→teal→olive→amber→plum→violet→blue→rose），
-   与 buildCeramicSkin() 的 bandKeyOf 映射一致；颜色字面量只在此精确块内（R01），
+   与 buildCeramicSkin() 的 bandKeyOf 映射一致；颜色字面量只在此精确块内，
    变量名与 ceramic / nebula 完全一致，由 buildComponentCss('starforge') 复用。 */
 html[data-rp-theme='starforge'] {
   color-scheme: dark;
@@ -1288,10 +1561,10 @@ html[data-rp-theme='starforge'] {
   --rp-cc-text-inverse: #0b121b;
   --rp-cc-text-link: #8fc9de;
   --rp-cc-text-disabled: #7a8d9d;
-  /* 阈值告警与浅蓝链接拉开冷暖，不与橙金主强调色撞色（R45）。 */
+  /* 阈值告警与浅蓝链接拉开冷暖，不与橙金主强调色撞色。 */
   --rp-cc-warn-accent: #ff8a4c;
 
-  /* 呼吸灯三档：青绿 / 橙金 / 橙红，跟随本主题主色调（R52）。 */
+  /* 呼吸灯三档：青绿 / 橙金 / 橙红，跟随本主题主色调。 */
   --rp-cc-pulse-success: #79d7c6;
   --rp-cc-pulse-secondary: #f4ac69;
   --rp-cc-pulse-danger: #e0795b;
@@ -1386,7 +1659,7 @@ html[data-rp-theme='starforge'] {
   --rp-cc-cat-2-text: #a3e6da;
   --rp-cc-cat-2-border: #79d7c6;
   --rp-cc-cat-2-chart: #79d7c6;
-  /* 进度条主/次填充：由橙金 / 青绿减半深度得到，与图表实色分离（R33）。 */
+  /* 进度条主/次填充：由橙金 / 青绿减半深度得到，与图表实色分离。 */
   --rp-cc-progress-primary: #a87447;
   --rp-cc-progress-secondary: #4f9a8a;
   --rp-cc-cat-3-bg: rgba(180, 192, 120, 0.16);
@@ -1429,58 +1702,48 @@ html[data-rp-theme='starforge'] body {
    原型以 13px 正文 / 11px 辅助 / 600 标题、6px 圆角、1px 冷蓝细线、等宽数据
    构成统一的工业控制台观感。这里只改不占盒模型的属性（圆角 / 内描边 / 字重 /
    字距 / 数字变体），禁止改 border / padding / 字号（R09、R14）；颜色一律
-   var(--rp-cc-*)，不在组件规则里写色值（R01）。三重前缀把特异性抬到 (0,3,x)，
+   var(--rp-cc-*)，不在组件规则里写色值。三重前缀把特异性抬到 (0,3,x)，
    压过游戏与引擎的同级规则，且只作用于本主题（R06、R21）。 */
-html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme] :is(
-  [class*='SectionHeader__container'],
-  [class*='GridItemView__container'],
-  [class*='ContextControls__container'],
-  [class*='MenuHeadItem__menu'],
-  [class*='AlertListItem__container']
-) {
+html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme]
+  :is(
+    [class*='SectionHeader__container'],
+    [class*='GridItemView__container'],
+    [class*='ContextControls__container'],
+    [class*='MenuHeadItem__menu'],
+    [class*='AlertListItem__container']
+  ) {
   border-radius: 6px;
   box-shadow: inset 0 0 0 1px var(--rp-cc-border-subtle);
 }
-html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme] :is(
-  [class*='Button__btn'],
-  [class*='StaticInput__static'],
-  [class*='Select__select']
-) {
+html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme]
+  :is([class*='Button__btn'], [class*='StaticInput__static'], [class*='Select__select']) {
   border-radius: 5px;
 }
-html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme] :is(
-  [class*='SectionHeader__container'],
-  [class*='TileFrame__header'],
-  [class*='HeadItem__label'],
-  [class*='Frame__title']
-) {
+html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme]
+  :is(
+    [class*='SectionHeader__container'],
+    [class*='TileFrame__header'],
+    [class*='HeadItem__label'],
+    [class*='Frame__title']
+  ) {
   font-weight: 600;
   letter-spacing: 0.3px;
 }
 /* 分组头的橙金左色条：对应原型「标题图标 + 色块」的视觉层级。 */
 html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme] [class*='SectionHeader__container'] {
-  box-shadow: inset 2px 0 0 var(--rp-cc-accent-line), inset 0 0 0 1px var(--rp-cc-border-subtle);
+  box-shadow:
+    inset 2px 0 0 var(--rp-cc-accent-line),
+    inset 0 0 0 1px var(--rp-cc-border-subtle);
 }
-html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme] :is(
-  td, th, [class*='ColoredValue'], [class*='numCell'], [class*='Table__number']
-) {
+html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme]
+  :is(td, th, [class*='ColoredValue'], [class*='numCell'], [class*='Table__number']) {
   font-variant-numeric: tabular-nums;
 }
 /* 选中态表单 label 会套用橙金主按钮底色，但游戏把 label 文字写死成白色，
    白字压亮橙只有 1.9:1。文字必须与主按钮同口径走反色 token；后代 ⓘ 图标
-   用 color:inherit 跟随，无需单独覆盖（R13）。 */
-html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme] :is(
-  [class*='FormComponent__containerActive'], [class*='forms__active']
-) label {
+   用 color:inherit 跟随，无需单独覆盖。 */
+html[data-rp-theme='starforge'][data-rp-theme][data-rp-theme]
+  :is([class*='FormComponent__containerActive'], [class*='forms__active'])
+  label {
   color: var(--rp-cc-text-inverse) !important;
-}
-
-/* BURN 星球行右侧的「命令」列：默认显示；由 basic/burn-command-column 功能
-   在 <html> 上加 data-rp-burn-commands 控制，开关在 XIT SET → 功能。 */
-[data-rp-burn-commands-col] {
-  display: none;
-}
-
-html[data-rp-burn-commands] [data-rp-burn-commands-col] {
-  display: table-cell;
 }
