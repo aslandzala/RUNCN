@@ -78,12 +78,6 @@ export const THEMES = [
     desc: '深空工业，橙金主色',
     mode: 'token',
   },
-  {
-    id: 'starforge',
-    label: '星铸工业',
-    desc: '参考深空工业控制台：近黑深蓝底 + 深钢板面板，橙金（#f4ac69）作为唯一主强调色贯穿标题、主按钮、选中态与焦点环；青绿/蓝/紫/黄绿/橙红/玫红等八类功能彩色只用于分类与状态色块，同类同色。',
-    mode: 'token',
-  },
 ] as const satisfies readonly ThemeDefinition[];
 
 /** 设置项与 data-rp-theme 的合法取值，从注册表派生，不再手工维护。 */
