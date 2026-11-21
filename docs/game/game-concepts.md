@@ -82,6 +82,7 @@ Each planet has a limited number of plots. To build a base, a planet must have a
 A base is the primary operational unit on a planet.
 
 - Bases can be built on any planet.
+- A company owns at most one base per planet (confirmed by the maintainer 2026-11-20): a route waypoint's planet natural id therefore identifies its base uniquely.
 - Bases use up a base permit, and can be expanded to three permits.
 - A single-permit base has 500 building area. Each other permit adds 250.
 - Additional permits can be reclaimed at any time.
@@ -130,6 +131,7 @@ A production line is a set of identical buildings (e.g., 3 FRM = 1 production li
 - Players queue orders in production lines via PRODCO command.
 - Specify: primary output commodity, order size, input materials.
 - Order size scales production time and material consumption proportionally.
+- Outputs are credited only when the whole order completes — an unfinished batch adds nothing to inventory (2026-11-20 confirmed). Projections must therefore count completed batches only.
 - Maximum queue: 5 pending orders; active orders = building count in line.
 - Efficiency multipliers applied based: building condition, worker availability, worker satisfaction, experts, CoGC programs, soil fertility.
 - Production halts if: no workers, no consumables, no inputs, insufficient production fees, insufficient funds, not enough space for output.

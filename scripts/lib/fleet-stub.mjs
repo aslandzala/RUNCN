@@ -12,11 +12,13 @@ export const fixture = {
   materials: {},
   stations: {},
   exchanges: {},
+  warehouses: {},
 };
 export const userData = reactive({ chainRuns: {}, actionPackages: [], triggers: [] });
 export const sitesStore = {
   all: ref([]),
   getByPlanetNaturalId: id => sitesStore.all.value.find(x => x.siteId === id),
+  getByPlanetNaturalIdOrName: id => sitesStore.all.value.find(x => x.siteId === id),
 };
 export const shipsStore = { all: ref([]), fetched: ref(true), getById: id => fixture.ships[id] };
 export const flightsStore = { all: ref([]), getById: () => undefined };
@@ -29,7 +31,10 @@ export const exchangesStore = {
   getByNaturalId: id => fixture.exchanges[id],
 };
 export const starsStore = { all: ref([]) };
-export const warehousesStore = { all: ref([]) };
+export const warehousesStore = {
+  all: ref([]),
+  getByEntityNaturalId: id => fixture.warehouses[id],
+};
 export const getStarNaturalId = star => star.systemId;
 // 航点地址编码只在按航班推断航线时参与匹配；本套契约不覆盖那条路径。
 export const encodeAddress = () => undefined;
@@ -60,6 +65,33 @@ export const showBuffer = async (command, options) => {
   windows.push({ command, options });
 };
 export const onApiMessage = () => {};
+// 强制通道按真实 api-messages 的注册/派发语义实现：航线 socket 写入靠它收响应。
+const forceHandlers = new Map();
+export const onApiMessageForce = handlers => {
+  for (const type of Object.keys(handlers)) {
+    const list = forceHandlers.get(type) ?? [];
+    list.push(handlers[type]);
+    forceHandlers.set(type, list);
+  }
+};
+export function dispatchForce(message) {
+  let changed = false;
+  for (const handler of forceHandlers.get(message.type) ?? []) {
+    if (handler(message.data)) {
+      changed = true;
+    }
+  }
+  return changed;
+}
+export const companyContextId = { value: 'CTX' };
+// 客户端→服务器的请求按原样录下，供报文断言；真实发送在这里不发生。
+export const socketMessages = [];
+export function sendServerMessage(message) {
+  socketMessages.push(message);
+  return true;
+}
+// 航点地址编码只在整条航线写入（writeRoute）里参与，本套契约不覆盖那条路径。
+export const resolveEntity = async () => undefined;
 export const sleep = () => Promise.resolve();
 export const estimation = { calls: [], pending: null, result: null };
 export async function estimateChainFlightTimes(input) {
