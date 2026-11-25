@@ -2,13 +2,12 @@
 
 > 状态：已实现（待浏览器验收）。纯数据/计算层（步骤 1–3、4 核心、6 数据、8 文档）、向导/规划 UI（步骤 4b、5）与运行中卡片循环状态/补货/预检（步骤 7）均已落地。UI 均需浏览器验收；RTE 阻塞/等待中文文案、缺量时步骤等待最少数量的实机表现待验收。
 
-给 XIT FLEET 生成的原生 RT 增加可选「循环执行」：写完航点与装卸步骤后打开游戏自带的 Loop，由游戏服务端反复执行同一闭环。循环不依赖浏览器内的 ACT 触发器，关掉页面仍继续跑。
+给 XIT FLEET 生成的原生 RT 增加可选「循环执行」：写完航点与装卸步骤后打开游戏自带的 Loop，由游戏服务端反复执行同一闭环。关掉页面后循环仍继续运行。
 
 ## 目标
 
 - 单船、单航线：出发地 → 各基地（先卸后装）→ 出发地，Loop 打开后自动进入下一轮。
 - 循环模式按**一轮**重算运量，按轮数备货，并在 FLEET「运行中」展示循环状态与阻塞。
-- 循环模式不生成 ACT 包/触发器，避免同一次到港重复装卸。
 - 默认关闭；单趟路径行为不变。
 
 ## 非目标
@@ -21,7 +20,7 @@
 ## 现状与约束
 
 - 生成器已写出闭环航点与全部装卸/补油步骤（`../../src/features/XIT/FLEET/native-route-plan.ts` 的 `buildNativeWaypoints`）。
-- 当前向导在写完后要求确认 Loop 关闭（`../../src/features/XIT/FLEET/NativeRouteDialog.vue`），执行靠 `FLIGHT_ENDED` 触发器跑 ACT（`../../src/features/XIT/FLEET/chain-actions.ts`）。
+- 单趟与循环均由原生 RT 执行。向导写完单趟航线后保持 Loop 关闭。
 - 游戏规则（[官方航线手册](https://handbook.apex.prosperousuniverse.com/wiki/routes/)）：
   - 循环航线在末站步骤完成后从首站重来；Loop 开关在下一轮结束生效。
   - 装卸步骤按最小/最大量移动；不足最小值或目标仓库无空间时原地等待，没有超时。
@@ -38,14 +37,14 @@
 - 向导增加「循环执行」复选框，默认关闭。
 - 循环模式要求：恰好 1 艘船、至少 1 个基地、至少 2 个不同目的地。
 - 航线形状保持 `出发地 → 基地… → 出发地`。首站是目的地，船从当前位置飞过去；循环从首站重新开始。
-- 写入顺序：建航线 → 写航点/档位/步骤 → 校验航点数与步骤数 → 打开 Loop → 读回确认。Loop 打开失败时保留单趟航线并提示手动开启。
+- 写入顺序：在 FLEET「规划中」查看预览并点「生成原生 RT」→ 检查航点地址与装卸物料 → 建航线 → 添加航点和步骤，按回包补写不符的设置 → 打开 Loop → 读回确认。Loop 打开失败时保留单趟航线并提示手动开启。
 
 ### 周期与运量
 
 **周期估算（生成时快照）**
 
-- `cycleHours = estimateChainFlightTimes({ ship, origin, stops, legPayloads, refuelAtOrigin: true }).totalHours`。`legPayloads` 取计划的 `legLoadWeight(plan, i, legCount)`（逐段离站载重）；首段按出发地补满油罐、后续段按上一段余油递推（与原生 RT 只在出发地补满一致，`../../src/features/XIT/FLEET/chain-flight-time.ts`）。
-- `est.ok === false`（任一段判缺）时不得进入循环模式：得不到可靠周期，列出缺数据段并退回单趟。
+- `cycleHours = estimateChainFlightTimes({ ship, origin, stops, legPayloads, refuelAtOrigin: true, nativeRoute: true }).totalHours`。`legPayloads` 取计划的 `legLoadWeight(plan, i, legCount)`（逐段离站载重）；首段按出发地补满油罐、后续段按上一段余油递推（与原生 RT 只在出发地补满一致，`../../src/features/XIT/FLEET/chain-flight-time.ts`）。
+- 估时启用网关，按每段的起飞时刻及余油选择可行整数档位。向导沿用这份循环计划的装卸步骤、档位、出发地补满设置与逐段油耗，备货按同一份油耗计算。任一段缺输入或余油不足时列出航段和原因，并停用循环 RT 生成。
 - `cycleDays = cycleHours / 24`。循环模式把所勾选基地的 `days` 覆盖为 `cycleDays`，不写回 `base.config`；循环账单与提取都不读 `config.days`，FLEET 配置表的天数输入仍可编辑但对循环无效（只有单趟环线用它）。
 - **周期逐轮漂移**：估时按出发时刻的天体位置推算，循环每轮实际出发时刻不同，实际周期 ≠ 生成时 `cycleDays`。`cycleDays` 只是写步骤时的快照；不做后台重算（不轮询），运行中卡片的周期标「预计」。
 
@@ -97,6 +96,8 @@
 - 「出发地库存可支撑 N 轮」= `min over roundBill 物料 floor(stock / 每轮量)`（含 SF/FF），最先耗尽者决定。
 - **燃料只认生成时快照**（`record.fuelPerRound`，`loopSustain`）：游戏 UI 手建的循环航线没有快照，按罐容量估会把整圈当成耗满一罐（支撑轮数偏少、误报「不足 1 轮」），完全不估又会把 SF/FF 从账单里漏掉（支撑轮数偏高）。没有快照时一律不给数字：卡片显示「—」、不报「不足 1 轮」、补货包只含物料。
 - 船离港后出发地仓库空出，正好补下一轮。运行中卡片也提供「补货」：按 `N × roundBill − 当前 originStock` 算缺口（不再只在未运行时显示）；出发地非交易所或已备齐时置灰。
+- 运行中卡片的「CX 消耗」打开 `XIT BURN CX <交易所代码>`。汇总经过该 CX 且正在执行的循环航线上的自有基地，每个基地只计一次。日均输入、产出和劳动力消耗直接合并基地 BURN，库存取该 CX 的玩家仓库。「天数」按日均净耗计算，「需要」按全局 BURN 补给天数计算。CX 报告、向导和比价页共用游戏航线列表，打开时缺少列表才发起一次读取，游戏后续推送的航线变更会更新列表。
+- CX BURN 的「ACT」打开 `XIT BURNGEN CX <交易所代码>`，沿用全局 BURN 补给天数及当前生产和劳动力筛选。向导可调整天数和物料来源、预览缺口，再生成目标 CX 的补库包。「比价购买」将当前筛选带入 `XIT CBUY CX <交易所代码>`，比较各交易所盘口，操作包在目标 CX 采购。补库包只含 `CX Buy`，缺口已扣目标仓库库存一次。
 
 ### Loop 开关
 
@@ -107,12 +108,10 @@
 - 关闭循环在下一轮结束生效；删除航线前必须先解除分配。
 - 循环开关与补货仍由向导/卡片点击触发。
 
-### 执行与 ACT 关系
+### 执行与备货
 
-- 循环模式不调用 `buildChainActionPackages`，不创建 `FLIGHT_ENDED` 触发器。
-- 守卫绑的是「循环已生效」（`loopActive`），不是「勾了循环模式」：估时失败/资格不足时按上面「退回单趟」处理，此时「生成原生 RT」是禁用的，若 ACT 一起禁掉玩家就没有任何可执行路径。两个出口（按钮置灰、`execute()` 早退）共用 `actBlockedReason`，不各写一份文案。
-- 生成前检查该船是否仍有旧环线 ACT/触发器；有则要求先清理，避免同一次到港执行两遍装卸。
-- 原 ACT 路径保留给单趟、需要 CX 买卖或需要每轮重新规划的场景。
+- 原生 RT 负责航行、装卸和补油，采购与补货通过 FLEETACT 的独立 CX 采购包完成。
+- 升级时停用可识别的旧 FLEET 到港触发器，避免到港时重复装卸。已保存的操作包保留。
 
 ### 监控与异常
 
@@ -146,7 +145,6 @@
 - 出发地库存 ≥1 轮（含 SF/FF）。
 - 各基地仓储余量够本轮配送（不足则警告，运行中可能阻塞）。
 - Loop 已确认打开（`repeats` 读回）。
-- 无同船旧环线 ACT/触发器。
 - 玩家有 PRO（无法可靠读取时只提示）。
 
 ## 数据与接口
@@ -185,8 +183,7 @@
 
 - `../../scripts/verify-fleet-contracts.mjs`：稳态**净缺口**账单与 need（`loopBurnBill`/`computeChainPlan` loop 口径：周期×日耗扣自产，自给材料不送、基地自留一轮生产所需）、**一次运输实际可用天数**（`fullLoadUsableDays`/`netDailyBundle`：舱容 ÷ Σ净日耗 bundle 加权分摊，自给基地不占分摊、缺数据不出数）、周期闭环迭代、备货轮数上限、支撑轮数（`loopSustain` 无每轮燃料快照留空）、循环资格、装卸步骤一律 `min=max`（`buildNativeWaypoints` 不再有 loop 参数，同 ticker 采购与链上卸货合并为一条精确量；`socketEditStep` 报文经桩录制断言 `minimum`/`maximum` 同为 `ABSOLUTE` 数量、补油仍 `CAPACITY`）、`repeats` 合并、`fuelPerRound` 的逐段求和与缺段回退（字面量腿，只测消费端）、**真实 `shipFuelRemainingFor`** 的吨→u 罐容量（0.06 t/u × 210 t → 3500 u，向下取整，余量 100）。
 - `../../scripts/verify-chain-flight-time.mjs`：真实公式模型下的**生产端**逐段 SF/FF 实耗（`stlUsed = 出发油量 − 到达余量`，系内为 0 而非回退），并与 `fuelPerRound` 对账。
-- 循环模式不生成 ACT 的**守卫在 `ChainView.vue`**（按钮置灰 + `execute()` 早退）：脚本只核对两处共用 `actBlockedReason` 的同一文案、没有各自硬编码；置灰与拦截行为本身属浏览器验收。
-- 浏览器：循环模式下「执行环线」置灰、tooltip 指向「生成原生 RT」；点不可用按钮不产生 ACT 包/触发器。
+- 浏览器：单趟和循环均在 FLEET「规划中」预览，多个船只或循环估时不可用时「生成原生 RT」置灰。点生成后先检查地址和物料，失败时在规划中显示问题，通过后打开向导并写入。
 - 实机：2 基地 1 船跑满两轮；基地有初始缓冲时多轮不饿死、不溢仓；上游减产轮链上提取/卸载不阻塞；抽掉一种出发地输入验证在出发地阻塞、补货后恢复；航行中补货；关闭 Loop 在下一轮生效。
 - 浏览器关闭后循环仍继续；关闭期间不产生扩展请求。
 - 打开/点页签才发 `SHIP_ROUTES_GET_ROUTES` / RTE 读取，符合 ToS 例外清单。

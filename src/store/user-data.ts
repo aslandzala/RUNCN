@@ -7,6 +7,8 @@ export const initialUserData = deepFreeze({
   settings: {
     mode: undefined as 'BASIC' | 'FULL' | undefined,
     disabled: [] as string[],
+    // XIT SET 功能页上次停留的分组标签（'all' 或 FeatureGroupId）。
+    featureGroup: 'all' as string,
     time: 'DEFAULT' as UserData.TimeFormat,
     defaultChartType: 'SMOOTH' as UserData.ExchangeChartType,
     currency: {
@@ -140,7 +142,6 @@ export const initialUserData = deepFreeze({
   baseAliases: {} as UserData.BaseAliases,
   baseProducts: {} as UserData.BaseProducts,
   baseGroups: {} as UserData.BaseGroups,
-  chainRuns: {} as Record<string, UserData.ChainRun>,
   tabs: {
     order: [] as string[],
     hidden: [] as string[],
