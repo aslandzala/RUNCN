@@ -1,49 +1,86 @@
 // 原生 RT 循环执行的单船规划（XIT FLEET）。与多船时间均衡的 use-chain-planning 分离：
-// 循环恰好 1 艘船、不分段、不生成 ACT。核心是整闭环不动点迭代——
-// 计划 → 逐段载重 → 估时（totalHours）→ 周期天数 → 计划。
-// 周期只是生成时快照（估时随出发时刻漂移），运行中不做后台重算（不轮询）。
+// 配货天数按整趟飞行时长向上取整。跨到另一档时用新货量重新估时。
 import { ref, watch, onScopeDispose } from 'vue';
-import { planChainRoute } from './chain-planner';
+import { collectChainPlanningSnapshot, loopBurnBill } from './chain-data';
+import { computeChainPlan, type ChainPlanningSnapshot } from './chain-plan-core';
 import {
   estimateChainFlightTimes,
   type ChainFlightEstimate,
   type ChainFlightTimeInput,
 } from './chain-flight-time';
 import { legLoadWeight } from './native-route-plan';
-import { cycleDaysFromHours, loopEligibility } from './native-route-loop';
-import { shipChainCapacity, shipOriginNaturalId, shipWarehouseStock } from './chain-allocation';
+import {
+  cycleNetAmount,
+  loopEligibility,
+  loopSupplyDays,
+  MIN_LOOP_SUPPLY_DAYS,
+} from './native-route-loop';
+import { shipChainCapacity, shipOriginNaturalId } from './chain-allocation';
 import type { ChainPlannerBase, ChainPlan, ChainCapacity } from './chain-types';
 import type { DispatchShip } from './utils';
+import { gameNow } from '@src/infrastructure/fio/orbit';
+import { fixed0, fixed02 } from '@src/utils/format';
 
 export interface LoopPlanInput {
   ship: PrunApi.Ship;
   origin: string;
   bases: ChainPlannerBase[];
   capacity: ChainCapacity;
-  originStock: Record<string, number>;
-  purchaseStock?: Record<string, number>;
-  exchangeCode?: string;
 }
 
 export interface LoopPlanResult {
   ok: boolean;
   reasons: string[];
   plan?: ChainPlan;
+  supplyDays?: number;
   cycleHours?: number;
   estimate?: ChainFlightEstimate;
-  iterations: number;
-  converged: boolean;
-  warnings: string[];
 }
 
-const MAX_ITERATIONS = 3;
-const CONVERGENCE = 0.05;
+const MAX_ESTIMATES = 8;
+
+function validateLoopTransfers(plan: ChainPlan, snapshot: ChainPlanningSnapshot) {
+  const reasons: string[] = [];
+  if (plan.stops.length === 0) {
+    reasons.push('本轮没有可执行的基地装卸。');
+  }
+  for (const [ticker, amount] of Object.entries(plan.loopOriginReturn ?? {})) {
+    const missing = amount - (plan.finalUnload[ticker] ?? 0);
+    if (missing > 0) {
+      reasons.push(`出发地「${ticker}」每轮少回运 ${fixed0(missing)}，产量或舱容不足。`);
+    }
+  }
+  const stops = new Map(plan.stops.map(stop => [stop.naturalId, stop]));
+  const missingDimensions = new Set<string>();
+  for (const base of snapshot.bases) {
+    const stop = stops.get(base.naturalId);
+    for (const [ticker, rate] of Object.entries(base.burn)) {
+      const unload = (stop?.unloadCx[ticker] ?? 0) + (stop?.unloadChain.get(ticker)?.amount ?? 0);
+      const load = stop?.load.get(ticker)?.amount ?? 0;
+      const shortfall = cycleNetAmount(rate, base.days) + load - unload;
+      if (shortfall > 1e-8) {
+        reasons.push(
+          `「${base.planetName || base.naturalId}」${ticker} 每轮缺 ${fixed02(shortfall)}。`,
+        );
+      }
+      if ((unload > 0 || load > 0) && snapshot.materials[ticker] === undefined) {
+        missingDimensions.add(ticker);
+      }
+    }
+  }
+  if (missingDimensions.size > 0) {
+    reasons.push(`缺少物料重量或体积：${[...missingDimensions].join('、')}。`);
+  }
+  if (plan.hasUnmetChainDemand === true && reasons.length === 0) {
+    reasons.push('必需的链上输送超过飞船剩余舱容。');
+  }
+  return reasons;
+}
 
 export async function computeLoopPlan(
   input: LoopPlanInput,
   estimate: (i: ChainFlightTimeInput) => Promise<ChainFlightEstimate> = estimateChainFlightTimes,
 ): Promise<LoopPlanResult> {
-  const warnings: string[] = [];
   const pre = loopEligibility({
     shipCount: 1,
     baseCount: input.bases.length,
@@ -51,86 +88,89 @@ export async function computeLoopPlan(
     estimateOk: true,
   });
   if (!pre.ok) {
-    return { ok: false, reasons: pre.reasons, iterations: 0, converged: false, warnings };
+    return { ok: false, reasons: pre.reasons };
   }
-  const routeBase = {
+  const startAtMs = gameNow();
+  const ship = { ...input.ship };
+  const snapshot = collectChainPlanningSnapshot({
     originNaturalId: input.origin,
     capacity: input.capacity,
     bases: input.bases,
-    originStock: input.originStock,
-    purchaseStock: input.purchaseStock,
-    exchangeCode: input.exchangeCode,
     loop: true,
-  };
-  let cycleDays: number | undefined;
-  let prevCycleHours: number | undefined;
-  let plan: ChainPlan | undefined;
-  let est: ChainFlightEstimate | undefined;
-  let cycleHours: number | undefined;
-  let iterations = 0;
-  let converged = false;
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    iterations++;
-    plan = planChainRoute({ ...routeBase, cycleDays });
-    if (!plan) {
-      return { ok: false, reasons: ['无法生成环线计划。'], iterations, converged: false, warnings };
+  });
+  if (snapshot === undefined) {
+    return { ok: false, reasons: ['缺少基地生产或消耗数据。'] };
+  }
+  let days = MIN_LOOP_SUPPLY_DAYS;
+  const triedDays = new Set<number>();
+  while (triedDays.size < MAX_ESTIMATES && !triedDays.has(days)) {
+    triedDays.add(days);
+    const cargoSnapshot = {
+      ...snapshot,
+      bases: snapshot.bases.map(base => ({ ...base, days, bill: loopBurnBill(base.burn, days) })),
+    };
+    const plan = computeChainPlan(cargoSnapshot, fixed0);
+    if (plan === undefined) {
+      return { ok: false, reasons: ['无法生成环线计划。'] };
     }
-    const stops = plan.stops.map(s => ({ naturalId: s.naturalId, planetName: s.planetName }));
+    if (plan.overCapacity) {
+      return {
+        ok: false,
+        reasons: [`按 ${days} 天配货的必需补给超过飞船剩余舱容。`],
+        plan,
+        supplyDays: days,
+      };
+    }
+    // 试配货量取整为零时，先估算途经所选基地的空舱路线。
+    const hasCargoStops = plan.stops.length > 0;
+    const plannedStops = hasCargoStops
+      ? plan.stops
+      : snapshot.bases.filter(base => base.naturalId !== input.origin);
+    const stops = plannedStops.map(({ naturalId, planetName }) => ({ naturalId, planetName }));
+    if (!hasCargoStops) {
+      stops.sort((a, b) => snapshot.planetRanks[a.naturalId]! - snapshot.planetRanks[b.naturalId]!);
+    }
     const legCount = stops.length + 1;
-    const legPayloads = Array.from({ length: legCount }, (_, index) =>
-      legLoadWeight(plan!, index + 1, legCount),
-    );
-    est = await estimate({
-      ship: input.ship,
+    const est = await estimate({
+      ship,
       origin: input.origin,
       stops,
-      legPayloads,
+      legPayloads: Array.from({ length: legCount }, (_, index) =>
+        hasCargoStops ? legLoadWeight(plan, index + 1, legCount) : 0,
+      ),
+      startAtMs,
       refuelAtOrigin: true,
       nativeRoute: true,
     });
-    // 任一段判缺 ⇒ 得不到可靠周期，退回单趟（不进入循环模式）。
-    if (!est.ok) {
+    if (!est.ok || !Number.isFinite(est.totalHours) || est.totalHours <= 0) {
       const failures = est.legs
         .filter(leg => !leg.ok)
         .map(leg => `${leg.from} → ${leg.to}：${leg.missingInputs?.join('；') ?? leg.error}`);
       return {
         ok: false,
-        reasons: ['飞行估时不完整，无法确定循环周期。', ...failures],
+        reasons: ['飞行估时不完整，无法确定配货天数。', ...failures],
         plan,
         estimate: est,
-        iterations,
-        converged: false,
-        warnings,
+        supplyDays: days,
       };
     }
-    cycleHours = est.totalHours;
-    if (
-      prevCycleHours !== undefined &&
-      cycleHours > 0 &&
-      Math.abs(cycleHours - prevCycleHours) / cycleHours < CONVERGENCE
-    ) {
-      converged = true;
-      break;
+    const nextDays = loopSupplyDays(est.totalHours);
+    if (nextDays === days) {
+      const reasons = validateLoopTransfers(plan, cargoSnapshot);
+      return {
+        ok: reasons.length === 0,
+        reasons,
+        plan,
+        supplyDays: days,
+        cycleHours: est.totalHours,
+        estimate: est,
+      };
     }
-    prevCycleHours = cycleHours;
-    cycleDays = cycleDaysFromHours(cycleHours);
+    days = nextDays;
   }
-  if (!converged) {
-    warnings.push('循环周期迭代未收敛（3 次），保留最后一次估算（界面标「预计」）。');
-  }
-  return {
-    ok: true,
-    reasons: [],
-    plan,
-    cycleHours,
-    estimate: est,
-    iterations,
-    converged,
-    warnings,
-  };
+  return { ok: false, reasons: ['配货天数与装载后的预计飞行时长未收敛。'] };
 }
 
-// 单船循环规划的响应式封装：enabled/船/基地变化时重算闭环迭代。
 export function useChainLoopPlanning(input: {
   ship: () => DispatchShip | undefined;
   bases: () => ChainPlannerBase[];
@@ -166,8 +206,6 @@ export function useChainLoopPlanning(input: {
         origin: shipOriginNaturalId(ship),
         bases,
         capacity,
-        originStock: shipWarehouseStock(ship) ?? {},
-        exchangeCode: ship.exchangeCode,
       });
       if (current === token) {
         result.value = next;
@@ -184,10 +222,18 @@ export function useChainLoopPlanning(input: {
       }
     }
   }
-  watch([() => input.enabled(), () => input.ship(), () => input.bases()], () => void recompute(), {
-    immediate: true,
-    deep: true,
-  });
+  watch(
+    [
+      () => input.enabled(),
+      () => input.ship()?.ship,
+      () => input.ship()?.ship.condition,
+      () => input.ship()?.cargoStore,
+      () => input.ship()?.exchangeCode,
+      () => input.bases(),
+    ],
+    () => void recompute(),
+    { immediate: true },
+  );
   onScopeDispose(() => {
     token++;
   });

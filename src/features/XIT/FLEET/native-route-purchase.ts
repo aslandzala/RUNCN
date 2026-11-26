@@ -1,9 +1,9 @@
+import { getPlanetBurn } from '@src/core/burn';
 import { exchangesStore } from '@src/infrastructure/prun-api/data/exchanges';
 import { materialsStore } from '@src/infrastructure/prun-api/data/materials';
 import { sitesStore } from '@src/infrastructure/prun-api/data/sites';
 import { storagesStore } from '@src/infrastructure/prun-api/data/storage';
 import { warehousesStore } from '@src/infrastructure/prun-api/data/warehouses';
-import { effectiveBurn } from './chain-data';
 import { fullLoadUsableDays, netDailyBundle } from './native-route-loop';
 import type { ChainPlan } from './chain-types';
 import type { DispatchShip } from './utils';
@@ -86,12 +86,22 @@ export function readOriginStock(origin: string) {
 export function cxShortfallPackage(
   origin: string,
   bill: Readonly<Record<string, number>>,
+  manualStock: Readonly<Record<string, number>> = {},
 ): UserData.ActionPackageData | undefined {
   const exchange = origin === '' ? undefined : exchangesStore.getByNaturalId(origin)?.code;
   if (exchange === undefined) {
     return undefined;
   }
-  const materials = billShortfall(bill, readOriginStock(origin));
+  const stock = readOriginStock(origin);
+  const materials = billShortfall(bill, stock);
+  for (const [ticker, missing] of Object.entries(billShortfall(manualStock, stock))) {
+    const remaining = (materials[ticker] ?? 0) - missing;
+    if (remaining > 0) {
+      materials[ticker] = remaining;
+    } else {
+      delete materials[ticker];
+    }
+  }
   if (Object.keys(materials).length === 0) {
     return undefined;
   }
@@ -112,7 +122,7 @@ export function nativeRoutePurchasePackage(
   return cxShortfallPackage(origin, nativeRouteOriginBill(record));
 }
 
-// 循环航线一次运输实际可用天数（满载加权分摊展示口径）：船总舱容 ÷ Σ各基地净日耗 bundle。
+// 循环航线满载可用天数（满载加权分摊展示口径）：船总舱容 ÷ Σ各基地净日耗 bundle。
 // 实际每轮送达按周期稳态净缺口，不装满；同一基地只算一次，不是基地的航点（出发/归航
 // 空间站）不计；BURN 或物料维度未加载返回 undefined（显示 —）。
 export function nativeRouteUsableDays(
@@ -131,7 +141,7 @@ export function nativeRouteUsableDays(
     if (site === undefined) {
       continue;
     }
-    const burn = effectiveBurn(site.siteId);
+    const burn = getPlanetBurn(site.siteId)?.burn;
     if (burn === undefined) {
       return undefined;
     }

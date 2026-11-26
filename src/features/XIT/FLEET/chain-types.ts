@@ -68,7 +68,7 @@ export interface ChainPlan {
   // 出发地站点 naturalId（如 AI1），用于归航触发器匹配。
   originNaturalId: string;
   stops: ChainStopPlan[];
-  // 循环模式：一次运输实际可用天数（满载加权分摊：总舱容 ÷ Σ净日耗 bundle）。
+  // 循环模式：满载可用天数（满载加权分摊：总舱容 ÷ Σ净日耗 bundle）。
   // 展示口径，非实际每轮送达（送达按周期稳态净缺口）；非循环为 undefined。
   fullLoadUsableDays?: number;
   // 被过滤的无操作站点；保留给规划界面解释为何未出现在航线中。
@@ -81,6 +81,8 @@ export interface ChainPlan {
   purchaseBill: Record<string, number>;
   // 出发地「取货」清单：组内产出的缺口由空间站仓库库存补足（不采购，装船随行）。
   originPickup: Record<string, number>;
+  // 循环在出发地周转的必需货物。首轮预备，随后由同一条航线归航补回。
+  loopOriginReturn?: Record<string, number>;
   warnings: string[];
   hasUnmetChainDemand?: true;
   peakLoad: { weight: number; volume: number };
