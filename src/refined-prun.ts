@@ -10,6 +10,10 @@ import '@src/features/basic/themes/nebula.css';
 import '@src/features/basic/themes/starforge.css';
 import '@src/features/basic/themes/htb.css';
 
+// 必须在 shell 之前：shell 的 deserialize-prun-app 才是把游戏脚本挂回去的地方，
+// i18n 修正要靠「先占住 window.PrUn_i18n 的赋值」才来得及在首屏生效。
+import '@src/features/basic/i18n-overrides';
+
 import '@src/infrastructure/shell';
 
 import '@src/infrastructure/fio/routes';
