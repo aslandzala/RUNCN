@@ -118,9 +118,10 @@ function cell(value: number | undefined) {
 
 <template>
   <div :class="$style.root">
-    <div :class="$style.title">
-      现金流量表（插件口径）
-      <span v-if="coverage" :class="$style.sub">明细 {{ totalBookings }} 笔 · {{ coverage }}</span>
+    <div :class="$style.title">现金流量表（插件口径）</div>
+    <div :class="$style.sub">
+      单位 {{ cashBookingsStore.bookCurrency.value }}（各笔按发生时汇率折算）
+      <template v-if="coverage"> · 明细 {{ totalBookings }} 笔 · {{ coverage }}</template>
     </div>
     <div v-if="!hasData" :class="$style.empty">
       还没有收到会计数据。打开一次 <b>FIN</b> 或 <b>FINLA</b> 后回来即可看到。
@@ -173,10 +174,13 @@ function cell(value: number | undefined) {
       还没收到现金流水明细。打开原生 <b>FIN</b>（近期现金转账）会触发一次下发。
     </div>
     <div v-else :class="$style.note">
+      金额统一是记账本位币（<b>{{ cashBookingsStore.bookCurrency.value }}</b
+      >）：游戏给每笔流水两个
+      金额，原币（AIC/CIS/NCC/ICA）和按<b>发生当时汇率</b>折成的本币，本页用后者汇总，所以只有一种
+      货币。跨期的汇率变化会体现在「未纳入明细的部分」里，不单独拆出折算差。
       明细来自游戏下发的现金流水，一次只给最近一段（实测约 289 笔、1~2 天）；本页会累积保存，
-      多打开几次 <b>FIN</b> 可把覆盖范围往后延伸。因此「未纳入明细的部分」＝ 整期净变动 −
-      明细三类合计，里面既有窗口之外的流水，也有本币折算差额，不强行归因。没有明细的期间只给
-      余额口径的净变动。
+      多打开几次 <b>FIN</b> 可把覆盖范围往后延伸。该行同时包含窗口之外的流水，不做归因；
+      没有明细的期间只给余额口径的净变动。
     </div>
   </div>
 </template>
@@ -191,16 +195,15 @@ function cell(value: number | undefined) {
 }
 
 .title {
-  display: flex;
-  gap: 0.5rem;
-  align-items: baseline;
   font-weight: 600;
 }
 
+/* 窄磁贴里标题和说明别挤在一行：说明单独占一行，允许折行。 */
 .sub {
-  font-weight: 400;
+  margin-top: -2px;
   opacity: 0.65;
   font-size: 0.9em;
+  line-height: 1.3;
 }
 
 .empty {

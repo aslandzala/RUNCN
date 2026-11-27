@@ -15,7 +15,9 @@ import { companyContextId } from '@src/infrastructure/prun-api/data/user-data';
 // 并持久化到 localStorage。玩家多开几次 FIN，覆盖范围就会往后延伸；同一期间
 // 内不会被重复计数。
 
-// 只留现金流量表用得到的字段，持久化时体积更小（约减半）。
+// 只留现金流量表用得到的字段，持久化时体积更小。
+// amount 是原币金额（可能是 AIC/CIS/NCC），bookAmount 是按发生当时汇率折成
+// 记账本位币（通常是 ICA）的金额；本页统一用 bookAmount 汇总，原币留着备用。
 export interface CashBooking {
   period: number;
   number: number;
@@ -23,12 +25,12 @@ export interface CashBooking {
   account: number;
   type: string;
   debit: boolean;
+  amount: PrunApi.CurrencyAmount;
   bookAmount: PrunApi.CurrencyAmount;
   time: { timestamp: number };
 }
 
 interface RawBooking extends CashBooking {
-  amount?: PrunApi.CurrencyAmount;
   bookBalance?: PrunApi.CurrencyAmount;
   balance?: PrunApi.CurrencyAmount;
   cash?: boolean;
@@ -50,6 +52,7 @@ function normalize(item: RawBooking): CashBooking {
     account: item.account,
     type: item.type,
     debit: item.debit,
+    amount: item.amount,
     bookAmount: item.bookAmount,
     time: item.time,
   };
@@ -136,4 +139,8 @@ export const cashBookingsStore = {
   /** 已收到的流水覆盖到的最早时间 */
   earliest: computed(() => entries.value[0]?.time.timestamp),
   latest: computed(() => entries.value[entries.value.length - 1]?.time.timestamp),
+  /** 记账本位币代码（bookAmount 的币种），页面用它说明「单位是什么」 */
+  bookCurrency: computed(
+    () => entries.value[entries.value.length - 1]?.bookAmount.currency ?? 'ICA',
+  ),
 };
