@@ -53,7 +53,9 @@ function normalize(item: RawBooking): CashBooking {
     account: item.account,
     type: item.type,
     debit: item.debit,
-    amount: item.amount,
+    // 早期版本只存了本位币金额，旧数据没有 amount 时用 bookAmount 顶上，
+    // 保证按原币分组不会读到 undefined。
+    amount: item.amount ?? item.bookAmount,
     bookAmount: item.bookAmount,
     time: item.time,
   };

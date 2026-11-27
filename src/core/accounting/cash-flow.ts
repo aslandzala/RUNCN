@@ -33,9 +33,14 @@ const OPERATING: Record<string, CashFlowLabel> = {
   WAREHOUSE_FEE_REVENUES: { name: '仓储费收入', section: 'operating' },
   GOVERNMENT_PROGRAM_FEE: { name: '管理方项目费', section: 'operating' },
   GOVERNMENT_PROGRAM_FEE_ROLLBACK: { name: '管理方项目费退回', section: 'operating' },
-  // 交易所挂单押金是买卖商品的保证金，随成交结算 → 经营
-  COMEX_DEPOSIT: { name: '商品交易所挂单押金', section: 'operating' },
-  COMEX_DEPOSIT_REFUND: { name: '挂单押金退回', section: 'operating' },
+  // 买单下单时就付钱（游戏叫 deposit），成交后变成库存、撤单才退回；
+  // 「押金」这个名字容易被读成钱还挂着，所以按现金流性质叫「买入付款」。
+  COMEX_DEPOSIT: {
+    name: '交易所买入付款',
+    section: 'operating',
+    hint: '在商品交易所下买单时付出的钱：下单即从现金扣，成交后转为库存，撤单退回记在「撤单退款」。当前仍挂单的部分会体现在资产「挂单冻结资金」上',
+  },
+  COMEX_DEPOSIT_REFUND: { name: '撤单退款', section: 'operating' },
   COMEX_ORDER_DELETION_FEES: { name: '撤单费', section: 'operating' },
   COMEX_ORDER_DELETION_FEES_ROLLBACK: { name: '撤单费退回', section: 'operating' },
   FOREX_DEPOSIT: { name: '外汇挂单押金', section: 'operating' },

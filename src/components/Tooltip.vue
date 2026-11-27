@@ -7,6 +7,7 @@ const {
   position = 'right',
   tooltip,
   noIcon = false,
+  maxWidth,
 } = defineProps<{
   position?: TooltipPosition;
   // 文本为空或 undefined 时不显示气泡;trigger 仍正常工作。
@@ -14,6 +15,9 @@ const {
   // 隐藏默认的 ⓘ 图标。当组件包裹了已有视觉的触发元素(如 cargo bar 段)
   // 时使用,避免图标与触发元素重叠。
   noIcon?: boolean;
+  // 长文案的换行宽度。默认 nowrap（短提示一行更紧凑）；给了宽度就自动换行，
+  // 否则一句话会横跨整个屏幕。
+  maxWidth?: number;
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -57,6 +61,8 @@ function show() {
     return;
   }
   el.textContent = tooltip;
+  el.style.whiteSpace = maxWidth === undefined ? 'nowrap' : 'normal';
+  el.style.maxWidth = maxWidth === undefined ? '' : `${maxWidth}px`;
   const rect = containerRef.value.getBoundingClientRect();
   const margin = 8;
   const vw = window.innerWidth;

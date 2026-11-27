@@ -2,6 +2,7 @@
 import { accountingPeriods } from '@src/infrastructure/prun-api/data/accounting-periods';
 import { cashBookingsStore } from '@src/infrastructure/prun-api/data/cash-bookings';
 import { buildCashFlow, type CashFlowSection } from '@src/core/accounting/cash-flow';
+import Tooltip from '@src/components/Tooltip.vue';
 import { formatCurrency } from '@src/utils/format';
 
 // 现金流量表（直接法）：数据来自游戏下发的现金流水明细 ACCOUNTING_CASH_BOOKINGS。
@@ -65,8 +66,9 @@ const balanceChanges = computed(() =>
     return close - open;
   }),
 );
-// 未纳入明细的部分 = 整期净变动 − 明细三类合计。它既包含窗口之外的流水，
-// 也包含本币折算带来的差额，所以不拆分归因，只在页脚说明。
+// 未纳入明细的部分 = 整期净变动 − 明细三类合计。它来自两处：窗口之外没下发的流水、
+// 以及外币折算差额。先把「本币」那部分单独抠出来——本币账户没有折算，缺口就是纯流水，
+// 剩下的是外币（窗口外流水 + 折算，二者无法只用余额分开）。
 const uncovered = computed(() =>
   columns.value.map((_, i) => {
     const balance = balanceChanges.value[i];
@@ -77,6 +79,67 @@ const uncovered = computed(() =>
     return balance - detail;
   }),
 );
+
+const cashByCurrency = (period: number) => {
+  const map = new Map<string, { original: number; book: number }>();
+  const entry = accountingPeriods.all.value.find(x => x.period === period);
+  for (const account of entry?.accounts ?? []) {
+    if (account.type !== 1800) {
+      continue;
+    }
+    const code = account.currencyBalance.currency;
+    const acc = map.get(code) ?? { original: 0, book: 0 };
+    acc.original += account.currencyBalance.amount;
+    acc.book += account.bookBalance.amount;
+    map.set(code, acc);
+  }
+  return map;
+};
+
+// 明细按「原币」分组的本币净额，用来与本币账户的余额变动对齐。
+const detailBookByCurrency = computed(() => {
+  const period = columns.value[0]?.period;
+  const map = new Map<string, number>();
+  if (period === undefined) {
+    return map;
+  }
+  for (const booking of cashBookingsStore.all.value) {
+    if (booking.period !== period) {
+      continue;
+    }
+    const code = (booking.amount ?? booking.bookAmount).currency;
+    const signed = booking.debit ? booking.bookAmount.amount : -booking.bookAmount.amount;
+    map.set(code, (map.get(code) ?? 0) + signed);
+  }
+  return map;
+});
+
+const uncoveredSplit = computed(() => {
+  const index = 0;
+  const period = columns.value[index]?.period;
+  const total = uncovered.value[index];
+  if (period === undefined || total === undefined) {
+    return { local: undefined, foreign: undefined };
+  }
+  const open = cashByCurrency(period - 1);
+  const close = cashByCurrency(period);
+  const own = cashBookingsStore.bookCurrency.value;
+  const codes = new Set([...open.keys(), ...close.keys()]);
+  let local = 0;
+  let foreign = 0;
+  for (const code of codes) {
+    const delta = (close.get(code)?.book ?? 0) - (open.get(code)?.book ?? 0);
+    const gap = delta - (detailBookByCurrency.value.get(code) ?? 0);
+    if (code === own) {
+      local += gap;
+    } else {
+      foreign += gap;
+    }
+  }
+  // 期初/期末币种集合对不上时（换汇导致账户变动）差额并入外币侧，保证两行加起来等于总额。
+  const residual = total - local - foreign;
+  return { local, foreign: foreign + residual };
+});
 
 const rowsBySection = computed(() => {
   const map: Record<CashFlowSection, typeof cashFlow.value.lines> = {
@@ -90,6 +153,28 @@ const rowsBySection = computed(() => {
   return map;
 });
 
+const ownCurrency = computed(() => cashBookingsStore.bookCurrency.value);
+
+// 「交易所买入付款」这笔钱有没有还挂着？看资产端「挂单冻结资金」(1350) 的余额：
+// 下单即出账、成交转库存、撤单退回，只有尚未成交的部分才留在该科目上。
+const frozenDeposit = computed(() => {
+  const latest = accountingPeriods.all.value.at(-1);
+  let sum = 0;
+  for (const account of latest?.accounts ?? []) {
+    if (account.type === 1350) {
+      sum += account.bookBalance.amount;
+    }
+  }
+  return sum;
+});
+
+// 交易所那行带上实时余额，避免被读成「押金还挂着」。
+function lineHint(line: { key: string; hint?: string }) {
+  if (!line.key.startsWith('operating:交易所买入付款')) {
+    return line.hint;
+  }
+  return `${line.hint}。当前仍挂单未成交：${formatCurrency(frozenDeposit.value)}`;
+}
 const hasData = computed(() => columns.value.length > 0);
 const hasDetail = computed(() => cashFlow.value.lines.length > 0);
 const totalBookings = computed(() => cashBookingsStore.all.value.length);
@@ -140,7 +225,7 @@ function cell(value: number | undefined) {
               <td colspan="4">{{ SECTION_NAMES[section] }}</td>
             </tr>
             <tr v-for="line in rowsBySection[section]" :key="line.key">
-              <td :title="line.hint">{{ line.name }}</td>
+              <td :title="lineHint(line)">{{ line.name }}</td>
               <td v-for="(v, i) in line.values" :key="i" :class="$style.num">{{ cell(v) }}</td>
             </tr>
             <tr :class="$style.subtotal">
@@ -168,19 +253,30 @@ function cell(value: number | undefined) {
           <td>未纳入明细的部分</td>
           <td v-for="(v, i) in uncovered" :key="i" :class="$style.num">{{ cell(v) }}</td>
         </tr>
+        <tr :class="$style.muted">
+          <td :class="$style.indent">其中：{{ ownCurrency }} 窗口外流水</td>
+          <td :class="$style.num">{{ cell(uncoveredSplit.local) }}</td>
+          <td :class="$style.num">—</td>
+          <td :class="$style.num">—</td>
+        </tr>
+        <tr :class="$style.muted">
+          <td :class="$style.indent">其中：外币（含折算差）</td>
+          <td :class="$style.num">{{ cell(uncoveredSplit.foreign) }}</td>
+          <td :class="$style.num">—</td>
+          <td :class="$style.num">—</td>
+        </tr>
       </tbody>
     </table>
     <div v-if="!hasDetail" :class="$style.note">
       还没收到现金流水明细。打开原生 <b>FIN</b>（近期现金转账）会触发一次下发。
     </div>
     <div v-else :class="$style.note">
-      金额统一是记账本位币（<b>{{ cashBookingsStore.bookCurrency.value }}</b
-      >）：游戏给每笔流水两个
-      金额，原币（AIC/CIS/NCC/ICA）和按<b>发生当时汇率</b>折成的本币，本页用后者汇总，所以只有一种
-      货币。跨期的汇率变化会体现在「未纳入明细的部分」里，不单独拆出折算差。
-      明细来自游戏下发的现金流水，一次只给最近一段（实测约 289 笔、1~2 天）；本页会累积保存，
-      多打开几次 <b>FIN</b> 可把覆盖范围往后延伸。该行同时包含窗口之外的流水，不做归因；
-      没有明细的期间只给余额口径的净变动。
+      金额为记账本位币（{{ ownCurrency }}），按每笔发生时的汇率折算。
+      <Tooltip
+        :class="$style.help"
+        tooltip="游戏每次只下发最近一段现金流水（实测约 289 笔、1~2 天），本页会累积保存，多开几次 FIN 覆盖范围会往后延伸。没覆盖到的部分就是「未纳入明细」：其中本币那一行是纯流水缺口（本币不涉及折算）；外币那行还混着汇率变动带来的账面差，无法只凭余额拆开。没有明细的期间只显示期末减期初。"
+        position="top"
+        :max-width="300" />
     </div>
   </div>
 </template>
@@ -245,6 +341,16 @@ function cell(value: number | undefined) {
 
 .muted td {
   opacity: 0.6;
+}
+
+.indent {
+  padding-left: 14px;
+}
+
+.help {
+  margin-left: 4px;
+  font-size: 0.95em;
+  opacity: 0.8;
 }
 
 .note {
