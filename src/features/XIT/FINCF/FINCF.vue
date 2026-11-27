@@ -225,7 +225,7 @@ function cell(value: number | undefined) {
               <td colspan="4">{{ SECTION_NAMES[section] }}</td>
             </tr>
             <tr v-for="line in rowsBySection[section]" :key="line.key">
-              <td :title="lineHint(line)">{{ line.name }}</td>
+              <td :title="lineHint(line)" :class="$style.lineRow">{{ line.name }}</td>
               <td v-for="(v, i) in line.values" :key="i" :class="$style.num">{{ cell(v) }}</td>
             </tr>
             <tr :class="$style.subtotal">
@@ -334,6 +334,13 @@ function cell(value: number | undefined) {
   line-height: 0;
 }
 
+/* 明细科目与一级科目同一缩进基准：一级 6px、明细 22px、活动净额 14px。
+   必须带 .table 前缀 —— `.table td { padding: 1px 6px }` 特异性更高，
+   光写 .lineRow 会被压回 6px（和 .num 是同一个坑）。 */
+.table .lineRow {
+  padding-left: 22px;
+}
+
 /* 一级科目（经营 / 投资 / 筹资活动）：整行加底色、字号放大、上下都有边框，
    和明细明显分开。底色用中性灰，深浅主题都不会被主题引擎改花。 */
 .section td {
@@ -350,6 +357,7 @@ function cell(value: number | undefined) {
 }
 
 .subtotal td {
+  padding-left: 14px;
   font-weight: 600;
   border-top: 1px solid rgba(128, 128, 128, 0.35);
 }

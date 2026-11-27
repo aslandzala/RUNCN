@@ -138,7 +138,7 @@ function cell(value: number | undefined) {
           <td colspan="5">收入</td>
         </tr>
         <tr v-for="row in revenueRows" :key="row.type">
-          <td :title="row.hint">{{ row.name }}</td>
+          <td :title="row.hint" :class="$style.groupRow">{{ row.name }}</td>
           <td v-for="(v, i) in row.values" :key="i" :class="$style.num">{{ cell(v) }}</td>
           <td :class="$style.num">{{ cell(row.total) }}</td>
         </tr>
