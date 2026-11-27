@@ -161,7 +161,7 @@ function cell(value: number | undefined) {
             <td :class="$style.num">{{ cell(row.total) }}</td>
           </tr>
           <tr :class="$style.groupSubtotal">
-            <td :class="$style.groupRow">{{ group.name }}小计</td>
+            <td>{{ group.name }}小计</td>
             <td v-for="(v, i) in group.totals" :key="i" :class="$style.num">{{ cell(v) }}</td>
             <td :class="$style.num">{{ cell(group.total) }}</td>
           </tr>
@@ -216,8 +216,11 @@ function cell(value: number | undefined) {
   text-align: left;
 }
 
-.num {
+/* 金额列右对齐。必须带 .table 前缀：上面的 `.table td { text-align: left }`
+   特异性更高，光写 .num 会被压掉（表体和表头都左对齐）。 */
+.table .num {
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .section td {
@@ -226,21 +229,24 @@ function cell(value: number | undefined) {
   border-bottom: 1px solid rgba(128, 128, 128, 0.35);
 }
 
-/* 支出分组标题：比「收入/支出」低一级，不加下划线，只做缩进和淡色。 */
+/* 支出分组的层级：标题不缩进（与「支出」同级、靠字重和淡色弱化），
+   明细缩进 16px，小计缩进 8px —— 之前标题缩进 10px、明细 18px，
+   两者只差 8px 又都是左对齐，实际看不出谁是谁的子项。 */
 .group td {
-  padding-top: 5px;
-  padding-left: 10px;
+  padding-top: 6px;
+  /* 与「支出」标题同一缩进（表格 td 的基准 padding 是 6px），不额外缩进。 */
+  padding-left: 6px;
   font-weight: 600;
-  opacity: 0.8;
   font-size: 0.95em;
+  opacity: 0.75;
 }
 
-.groupRow {
-  padding-left: 18px;
+.table .groupRow {
+  padding-left: 22px;
 }
 
 .groupSubtotal td {
-  padding-left: 10px;
+  padding-left: 14px;
   font-weight: 600;
   font-size: 0.95em;
   border-top: 1px dotted rgba(128, 128, 128, 0.45);

@@ -318,8 +318,10 @@ function cell(value: number | undefined) {
   text-align: left;
 }
 
-.num {
+/* 金额列右对齐；带 .table 前缀才能压过 `.table td { text-align: left }`。 */
+.table .num {
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .section td {
