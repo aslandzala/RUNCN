@@ -34,8 +34,10 @@ import {
 } from './native-route-socket';
 import {
   DEFAULT_WAYPOINT_FUEL_PERCENT,
+  editableNativeSteps,
   hoursInvalidatedBySettingChange,
   isWaypointPercent,
+  withOriginRefuels,
   type NativeRouteStep,
   type RouteTank,
 } from './native-route-plan';
@@ -138,16 +140,7 @@ const reactorUsageValid = computed(() =>
 const usageValid = computed(() => fuelUsageValid.value && reactorUsageValid.value);
 const fuelStatus = ref<string>();
 const fuelWarnings = ref<string[]>([]);
-const waypoints = computed(() =>
-  initialWaypoints.map((stop, index) =>
-    index === 0
-      ? {
-          ...stop,
-          steps: [...tanks.value.map(tank => ({ kind: 'refuel' as const, tank })), ...stop.steps],
-        }
-      : stop,
-  ),
-);
+const waypoints = computed(() => withOriginRefuels(initialWaypoints, tanks.value));
 const purchase = nativeRoutePlannedPurchasePackage(candidate.ship, candidate.plan);
 const hasPurchase = purchase.groups.some(group => Object.keys(group.materials ?? {}).length > 0);
 
@@ -323,7 +316,14 @@ const repeats = ref<boolean>();
 const waypointIndex = ref(0);
 const socketWrittenWaypoints = ref(0);
 const stepIndex = ref(0);
-const waypoint = computed(() => waypoints.value[waypointIndex.value]);
+const usingNativeEditor = ref(false);
+const editorWaypoints = computed(() =>
+  waypoints.value.map(waypoint => ({ ...waypoint, steps: editableNativeSteps(waypoint.steps) })),
+);
+const displayedWaypoints = computed(() =>
+  usingNativeEditor.value ? editorWaypoints.value : waypoints.value,
+);
+const waypoint = computed(() => editorWaypoints.value[waypointIndex.value]);
 const step = computed(() => waypoint.value?.steps[stepIndex.value]);
 
 type Progress =
@@ -395,7 +395,7 @@ function recordRoute(routeId: string, naturalId: string) {
     repeats: repeats.value,
     fuelPerRound: loopPlan?.fuel,
     loopOriginReturn: loopPlan === undefined ? undefined : loopReturn,
-    waypoints: waypoints.value.map((waypoint, index) => {
+    waypoints: displayedWaypoints.value.map((waypoint, index) => {
       const reactor = reactorUsagePercents.value[index];
       return {
         location: waypoint.location,
@@ -464,6 +464,12 @@ function describe(item: NativeRouteStep) {
   if (item.kind === 'refuel') {
     return `从本站仓库补满 ${item.tank}`;
   }
+  if (item.kind === 'unload-all') {
+    return '卸载全部';
+  }
+  if (item.minimum === 0) {
+    return `最多卸 ${item.amount} ${item.ticker}`;
+  }
   return `${item.kind === 'load' ? '装' : '卸'} ${item.amount} ${item.ticker}`;
 }
 
@@ -476,7 +482,7 @@ const actionLabel = computed(() => {
     case 'open':
       return '打开原生 RT';
     case 'create':
-      return '创建单趟航线';
+      return '创建航线';
     case 'open-route':
       return `打开 ${routeId.value ?? 'RT'}`;
     case 'select':
@@ -530,7 +536,7 @@ function setLoopWarning(message: string | undefined) {
 }
 
 // 循环模式：航点/步骤写完后打开游戏 Loop（SHIP_ROUTES_SET_REPEAT），用响应 repeats 校验。
-// 失败保留单趟航线并提示手动开启——开关与航点/步骤独立，socket 不可用时不阻断已写好的航线。
+// 开关与航点、步骤独立；失败时保留已写好的航线，分配前需手动开启 Loop。
 async function enableLoop() {
   const routeKey = routeId.value;
   if (!loop || routeKey === undefined) {
@@ -563,7 +569,7 @@ async function enableLoop() {
     repeats.value = false;
     setLoopWarning(
       `循环开关打开失败：${err instanceof Error ? err.message : String(err)}。` +
-        '已保留单趟航线，请在原生 RT 手动开启 Loop 后再分配。',
+        '已保留航线，请在原生 RT 手动开启 Loop 后再分配。',
     );
   }
 }
@@ -753,6 +759,10 @@ async function advanceOnce(retrying: boolean) {
         ...fuelWarnings.value,
         `socket 写入失败：${err instanceof Error ? err.message : String(err)}。改用界面填写。`,
       ];
+      if (waypoints.value.some(x => x.steps.some(step => step.kind === 'unload-all'))) {
+        fuelWarnings.value.push('界面回退按计划逐项卸货。');
+      }
+      usingNativeEditor.value = true;
       progress.value = { phase: 'open' };
     } finally {
       writeTask = undefined;
@@ -904,7 +914,9 @@ async function showRoute() {
     </p>
     <p v-else-if="progress.phase === 'done'" :class="$style.status" role="status">
       已生成。
-      <template v-if="loop && repeats === true">循环已开启。</template>
+      <template v-if="loop && repeats === true"
+        >循环已开启。关闭 Loop 生效时，飞船会停在末个基地。</template
+      >
       <template v-else-if="loop">循环尚未开启，请先打开 Loop。</template>
       <template v-else-if="repeats === false">循环已关闭。</template>
       <template v-else-if="repeats === true">循环已开启，请先在原生 RT 关闭 Loop。</template>
@@ -1044,7 +1056,7 @@ async function showRoute() {
         试飞，试飞也无结果时保留默认档。创建航线前可以修改百分比。</p
       >
       <ol :class="$style.stops">
-        <li v-for="(stop, i) in waypoints" :key="i">
+        <li v-for="(stop, i) in displayedWaypoints" :key="i">
           <strong>{{ stop.location }}</strong>
           <label>
             · 燃料消耗
