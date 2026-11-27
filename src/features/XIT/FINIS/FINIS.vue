@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { accountingPeriods } from '@src/infrastructure/prun-api/data/accounting-periods';
-import { labelOf } from '@src/core/accounting/account-labels';
+import {
+  EXPENSE_GROUPS,
+  expenseGroupOf,
+  labelOf,
+  type ExpenseGroup,
+} from '@src/core/accounting/account-labels';
 import { formatCurrency } from '@src/utils/format';
 
 // 利润表：收入/支出类科目的当期余额就是当期发生额（每期结转到利润），
@@ -48,6 +53,39 @@ function buildRows(section: 'revenue' | 'expense'): Row[] {
 
 const revenueRows = computed(() => buildRows('revenue'));
 const expenseRows = computed(() => buildRows('expense'));
+
+// 支出按性质分组：组内按金额降序，组间按「材料→人工→设施→出资→其他」。
+// 直接按金额排会把资本性出资（总部出资）和一次性冲账顶到最前面，和日常费用混在一起。
+interface GroupedRows {
+  id: ExpenseGroup;
+  name: string;
+  hint?: string;
+  rows: Row[];
+  totals: (number | undefined)[];
+  total: number;
+}
+
+const expenseGroups = computed<GroupedRows[]>(() => {
+  const buckets = new Map<ExpenseGroup, Row[]>();
+  for (const row of expenseRows.value) {
+    const group = expenseGroupOf(row.type);
+    const list = buckets.get(group) ?? [];
+    list.push(row);
+    buckets.set(group, list);
+  }
+  return EXPENSE_GROUPS.filter(g => buckets.has(g.id)).map(group => {
+    const rows = buckets.get(group.id) ?? [];
+    const totals = Array.from({ length: COLUMNS }, (_, i) => {
+      const present = rows.filter(r => r.values[i] !== undefined);
+      if (present.length === 0) {
+        return undefined;
+      }
+      return present.reduce((sum, r) => sum + (r.values[i] ?? 0), 0);
+    });
+    const total = rows.reduce((sum, r) => sum + r.total, 0);
+    return { id: group.id, name: group.name, hint: group.hint, rows, totals, total };
+  });
+});
 
 const revenueTotals = computed(() =>
   Array.from({ length: COLUMNS }, (_, i) =>
@@ -113,11 +151,21 @@ function cell(value: number | undefined) {
         <tr :class="$style.section">
           <td colspan="5">支出</td>
         </tr>
-        <tr v-for="row in expenseRows" :key="row.type">
-          <td :title="row.hint">{{ row.name }}</td>
-          <td v-for="(v, i) in row.values" :key="i" :class="$style.num">{{ cell(v) }}</td>
-          <td :class="$style.num">{{ cell(row.total) }}</td>
-        </tr>
+        <template v-for="group in expenseGroups" :key="group.id">
+          <tr :class="$style.group">
+            <td colspan="5" :title="group.hint">{{ group.name }}</td>
+          </tr>
+          <tr v-for="row in group.rows" :key="row.type">
+            <td :title="row.hint" :class="$style.groupRow">{{ row.name }}</td>
+            <td v-for="(v, i) in row.values" :key="i" :class="$style.num">{{ cell(v) }}</td>
+            <td :class="$style.num">{{ cell(row.total) }}</td>
+          </tr>
+          <tr :class="$style.groupSubtotal">
+            <td :class="$style.groupRow">{{ group.name }}小计</td>
+            <td v-for="(v, i) in group.totals" :key="i" :class="$style.num">{{ cell(v) }}</td>
+            <td :class="$style.num">{{ cell(group.total) }}</td>
+          </tr>
+        </template>
         <tr :class="$style.subtotal">
           <td>支出合计</td>
           <td v-for="(v, i) in expenseTotals" :key="i" :class="$style.num">{{ cell(v) }}</td>
@@ -176,6 +224,26 @@ function cell(value: number | undefined) {
   padding-top: 4px;
   font-weight: 600;
   border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+}
+
+/* 支出分组标题：比「收入/支出」低一级，不加下划线，只做缩进和淡色。 */
+.group td {
+  padding-top: 5px;
+  padding-left: 10px;
+  font-weight: 600;
+  opacity: 0.8;
+  font-size: 0.95em;
+}
+
+.groupRow {
+  padding-left: 18px;
+}
+
+.groupSubtotal td {
+  padding-left: 10px;
+  font-weight: 600;
+  font-size: 0.95em;
+  border-top: 1px dotted rgba(128, 128, 128, 0.45);
 }
 
 .subtotal td {
