@@ -114,8 +114,13 @@ const headers = computed(() => {
   });
 });
 
+// 与原生 FINIS 对齐：游戏对科目值和合计都是**向下取整**（负数也往下，例如
+// -232,539.4 显示 -232,540），而插件原来用四舍五入，导致每个非整数科目都比
+// 原生大 1。这里统一改成 floor，两个页面的数字就完全一致。
+// 注意：原生合计不是「逐项取整后相加」，而是各自对原值求和再取整，所以这里
+// 只改显示，values / totals 内部仍保留原始小数。
 function cell(value: number | undefined) {
-  return value === undefined ? '—' : formatCurrency(value);
+  return value === undefined ? '—' : formatCurrency(Math.floor(value));
 }
 </script>
 
