@@ -1,4 +1,5 @@
 import { onApiMessage } from '@src/infrastructure/prun-api/data/api-messages';
+import { balancesStore } from '@src/infrastructure/prun-api/data/balances';
 import { companyContextId } from '@src/infrastructure/prun-api/data/user-data';
 
 // 游戏下发的**现金流水明细**（ACCOUNTING_CASH_BOOKINGS）——原生 FIN 里
@@ -139,8 +140,15 @@ export const cashBookingsStore = {
   /** 已收到的流水覆盖到的最早时间 */
   earliest: computed(() => entries.value[0]?.time.timestamp),
   latest: computed(() => entries.value[entries.value.length - 1]?.time.timestamp),
-  /** 记账本位币代码（bookAmount 的币种），页面用它说明「单位是什么」 */
+  /**
+   * 记账本位币代码（bookAmount 的币种），页面用它说明「单位是什么」。
+   * 优先取流水自身的币种；还没有流水时退回服务器下发的 ownCurrency ——
+   * 它是公司建国时选的国家（派系）对应的货币，不是插件猜的。
+   */
   bookCurrency: computed(
-    () => entries.value[entries.value.length - 1]?.bookAmount.currency ?? 'ICA',
+    () =>
+      entries.value[entries.value.length - 1]?.bookAmount.currency ||
+      balancesStore.ownCurrency.value ||
+      'ICA',
   ),
 };
