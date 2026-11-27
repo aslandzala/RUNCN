@@ -6,6 +6,8 @@ xit.add({
   description: '显示资产和负债的资产负债表。',
   contextItems: () => [
     { cmd: 'XIT FIN' },
+    { cmd: 'XIT FINIS' },
+    { cmd: 'XIT FINCF' },
     { cmd: 'XIT FINPR' },
     { cmd: 'XIT FINCH' },
     { cmd: 'XIT SET FIN' },

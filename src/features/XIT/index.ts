@@ -33,6 +33,7 @@ import './FLT/FLT';
 import './FIN/FINPR';
 import './FINBS/FINBS';
 import './FINIS/FINIS';
+import './FINCF/FINCF';
 import './FINCH/FINCH';
 import './FX/FX';
 import './FXTS/FXTS';
