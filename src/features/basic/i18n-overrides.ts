@@ -95,6 +95,87 @@ const OVERRIDES: Override[] = [
   // ── 会计口径 ──
   { key: 'AccountType.INTEREST_INCOME', from: '利息营收', to: '利息收入' },
   { key: 'TemplateSelection.label.totalInterest', from: '总利息额', to: '利息总额' },
+
+  // ── 财务报表（BAL / FIN）分类与科目 ──
+  // EQUITY 是资产负债表右下角的权益，不是资产合计；游戏把它译成「总资产」，
+  // 与真正的总资产（总资产 = 资产合计）撞名。FINBS / FINCH 里一直叫「权益」。
+  { key: 'AccountCategory.EQUITY', from: '总资产', to: '权益' },
+  { key: 'AccountCategory.REVENUE', from: '营收', to: '收入' },
+  { key: 'AccountType.REVENUE', from: '一般营收', to: '一般收入' },
+  { key: 'AccountType.EXTRAORDINARY_INCOME', from: '非常规营收', to: '非常规收入' },
+  { key: 'AccountType.DIVIDEND_INCOME', from: '股息', to: '股息收入' },
+  { key: 'AccountType.PAYABLES', from: '待付款', to: '应付账款' },
+  { key: 'AccountType.RECEIVABLES', from: '待收款', to: '应收账款' },
+  { key: 'AccountType.RECEIVABLE_MATERIALS', from: '待收取材料', to: '应收材料' },
+  { key: 'AccountType.CASH_ESCROW', from: '押金（', to: '托管资金（' },
+  { key: 'AccountType.MATERIAL_ESCROW', from: '暂托管材料', to: '托管材料' },
+  { key: 'AccountType.WORKER_SUPPLIES', from: '工人供给', to: '劳动力消耗品' },
+  { key: 'AccountType.FOREX_FLUCTUATION_EXPENSE', from: '货币波动', to: '汇率波动损失' },
+  { key: 'AccountType.FOREX_FLUCTUATION_REVENUE', from: '货币波动', to: '汇率波动收益' },
+  // TAXES 是税、FEE 是费，游戏把税科目也译成「费用」，与 BookingType 的费撞名。
+  { key: 'AccountType.SITE_ESTABLISHMENT_TAXES', from: '基地建立费用', to: '基地设立税' },
+
+  // 各类「供应 / 供给」实为出资（contribution），供应是方向读反了。
+  { key: 'AccountType.COMPANY_HEADQUARTER_CONTRIBUTIONS', from: '公司总部供应', to: '总部出资' },
+  {
+    key: 'AccountType.CORPORATION_PROJECT_CONTRIBUTIONS',
+    from: '集团项目供应',
+    to: '集团项目出资',
+  },
+  { key: 'AccountType.PLANETARY_PROJECT_CONTRIBUTIONS', from: '行星项目供给', to: '行星项目出资' },
+  {
+    key: 'AccountType.REPRESENTATION_CENTER_CONTRIBUTIONS',
+    from: 'APEX代表中心供给',
+    to: 'APEX 代表中心出资',
+  },
+
+  // 收入类科目统一「～收入」，与「利息收入」同一口径（原来是「～营收」）。
+  { key: 'AccountType.GATEWAY_FEE_REVENUES', from: '跃迁点收费营收', to: '跃迁点收费收入' },
+  { key: 'AccountType.LOCAL_MARKET_FEE_REVENUE', from: '本地市场费用营收', to: '本地市场费用收入' },
+  { key: 'AccountType.PRODUCTION_FEE_REVENUE', from: '生产费用营收', to: '生产费用收入' },
+  { key: 'AccountType.TRANSPORT_REVENUE', from: '运输营收', to: '运输收入' },
+  { key: 'AccountType.CONTRIBUTION_REVENUE', from: '货币贡献营收', to: '货币贡献收入' },
+  { key: 'AccountType.WAREHOUSE_FEE_REVENUE', from: '仓储费用营收', to: '仓储费用收入' },
+  {
+    key: 'AccountType.SITE_ESTABLISHMENT_TAXES_REVENUE',
+    from: '基地建立费用营收',
+    to: '基地设立税收入',
+  },
+
+  // ── 现金流水的科目名 ──
+  // WORKFORCE_FEES 与仓储费重复（直接抄了上一行），实际是劳动力费用。
+  { key: 'BookingType.WORKFORCE_FEES', from: '仓储费用', to: '劳动力费用' },
+  { key: 'BookingType.WORKER_SUPPLIES', from: '生产力消耗的供给品', to: '劳动力消耗品' },
+  { key: 'BookingType.GATEWAY_FEE_REVENUES', from: '来自跃迁点费用的营收', to: '跃迁点费用收入' },
+  {
+    key: 'BookingType.LOCAL_MARKET_FEE_REVENUES',
+    from: '来自本地市场费用的营收',
+    to: '本地市场费用收入',
+  },
+  { key: 'BookingType.PRODUCTION_FEE_REVENUES', from: '来自生产费用的营收', to: '生产费用收入' },
+  {
+    key: 'BookingType.SITE_ESTABLISHMENT_FEE_REVENUES',
+    from: '来自基地建立费用的营收',
+    to: '基地建立费用收入',
+  },
+  { key: 'BookingType.WAREHOUSE_FEE_REVENUES', from: '来自仓储费用的营收', to: '仓储费用收入' },
+  // FIN 记账时间列写成了「预定于」（像"计划在某时"），实际是这笔流水的入账时间。
+  { key: 'CashBookings.time', from: '预定于', to: '记账时间' },
+
+  // ── 经济概览 / 三张报表的标题与期间列 ──
+  // 概览里的 equity 指标同样被译成「总资产」，与真正的总资产并排显示两个「总资产」。
+  { key: 'FinanceOverviewPanel.indicators.equity', from: '总资产', to: '权益' },
+  { key: 'FinanceOverviewPanel.indicators.revenue', from: '营收', to: '收入' },
+  // 「财务报表」是泛称，这张表其实是资产负债表；收入表按常用叫法改成利润表。
+  { key: 'BalanceStatementPanel.title', from: '财务报表', to: '资产负债表' },
+  { key: 'IncomeStatementPanel.title', from: '收入报表', to: '利润表' },
+  // 「上一周期 / 前一周期」在中文里分不出先后，按「本期 / 上期 / 上上期」排列。
+  { key: 'BalanceStatementPanel.period.current', from: '当前周期', to: '本期' },
+  { key: 'BalanceStatementPanel.period.last', from: '上一周期', to: '上期' },
+  { key: 'BalanceStatementPanel.period.previous', from: '前一周期', to: '上上期' },
+  { key: 'IncomeStatementPanel.period.current', from: '当前周期', to: '本期' },
+  { key: 'IncomeStatementPanel.period.last', from: '上一周期', to: '上期' },
+  { key: 'IncomeStatementPanel.period.previous', from: '前一周期', to: '上上期' },
 ];
 
 /** 已改过的词条，停用时逐条还原。 */
