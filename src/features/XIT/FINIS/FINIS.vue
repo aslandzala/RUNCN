@@ -148,7 +148,8 @@ function cell(value: number | undefined) {
           <td :class="$style.num">{{ cell(revenueTotals.reduce((a, b) => a + b, 0)) }}</td>
         </tr>
 
-        <tr :class="$style.section">
+        <tr :class="$style.gap"><td colspan="5"></td></tr>
+        <tr :class="[$style.section, $style.sectionMajor]">
           <td colspan="5">支出</td>
         </tr>
         <template v-for="group in expenseGroups" :key="group.id">
@@ -172,6 +173,7 @@ function cell(value: number | undefined) {
           <td :class="$style.num">{{ cell(expenseTotals.reduce((a, b) => a + b, 0)) }}</td>
         </tr>
 
+        <tr :class="$style.gap"><td colspan="5"></td></tr>
         <tr :class="$style.net">
           <td>净利润</td>
           <td v-for="(v, i) in netTotals" :key="i" :class="$style.num">{{ cell(v) }}</td>
@@ -223,10 +225,29 @@ function cell(value: number | undefined) {
   font-variant-numeric: tabular-nums;
 }
 
+/* 大组之间的半行留白：用空行而不是 margin（表格行不吃 margin）。
+   line-height / font-size 归零，否则行高会被内容撑起来。 */
+.gap td {
+  height: 6px;
+  padding: 0;
+  border: none;
+  font-size: 0;
+  line-height: 0;
+}
+
+/* 一级科目（收入 / 支出）：整行加底色、字号放大、上下都有边框，和明细明显分开。
+   底色用中性灰、不依赖主题色，深浅两套主题下都不会被主题引擎改花。 */
 .section td {
-  padding-top: 4px;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+  padding-top: 6px;
+  padding-bottom: 2px;
+  font-size: 1.12em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  /* 用背景图而不是 background-color：主题引擎会把带色背景改写成面板色，
+     底色会整块消失；背景图不在它的重写范围内。 */
+  background-image: linear-gradient(rgba(128, 128, 128, 0.25), rgba(128, 128, 128, 0.25));
+  border-top: 1px solid rgba(128, 128, 128, 0.45);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.45);
 }
 
 /* 支出分组的层级：标题不缩进（与「支出」同级、靠字重和淡色弱化），
@@ -260,10 +281,21 @@ function cell(value: number | undefined) {
   border-top: 1px solid rgba(128, 128, 128, 0.35);
 }
 
+/* 与上文关系更远的整段（支出、净利润）再压一条粗线：上面留白 + 这条线，
+   比单靠留白更容易看出"新的一段开始了"。「收入」是表头下第一段，不需要。 */
+.sectionMajor td {
+  border-top-width: 2px;
+  border-top-color: rgba(128, 128, 128, 0.6);
+}
+
+/* 净利润是这张表的结论，比一级科目再重一档：更深的底色 + 双线。 */
 .net td {
+  font-size: 1.12em;
   font-weight: 700;
-  border-top: 1px solid rgba(128, 128, 128, 0.55);
-  border-bottom: 1px solid rgba(128, 128, 128, 0.55);
+  letter-spacing: 0.02em;
+  background-image: linear-gradient(rgba(128, 128, 128, 0.38), rgba(128, 128, 128, 0.38));
+  border-top: 2px solid rgba(128, 128, 128, 0.6);
+  border-bottom: 2px solid rgba(128, 128, 128, 0.6);
 }
 
 .note {

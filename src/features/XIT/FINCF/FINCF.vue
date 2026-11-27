@@ -237,6 +237,7 @@ function cell(value: number | undefined) {
           </template>
         </template>
 
+        <tr :class="$style.gap"><td colspan="4"></td></tr>
         <tr :class="$style.net">
           <td>现金净变动（期末 − 期初）</td>
           <td v-for="(v, i) in balanceChanges" :key="i" :class="$style.num">{{ cell(v) }}</td>
@@ -324,10 +325,28 @@ function cell(value: number | undefined) {
   font-variant-numeric: tabular-nums;
 }
 
+/* 大组之间的半行留白：用空行（表格行不吃 margin），行高归零后靠 height 撑。 */
+.gap td {
+  height: 6px;
+  padding: 0;
+  border: none;
+  font-size: 0;
+  line-height: 0;
+}
+
+/* 一级科目（经营 / 投资 / 筹资活动）：整行加底色、字号放大、上下都有边框，
+   和明细明显分开。底色用中性灰，深浅主题都不会被主题引擎改花。 */
 .section td {
-  padding-top: 4px;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+  padding-top: 6px;
+  padding-bottom: 2px;
+  font-size: 1.12em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  /* 用背景图而不是 background-color：主题引擎会把带色背景改写成面板色，
+     底色会整块消失；背景图不在它的重写范围内。 */
+  background-image: linear-gradient(rgba(128, 128, 128, 0.25), rgba(128, 128, 128, 0.25));
+  border-top: 1px solid rgba(128, 128, 128, 0.45);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.45);
 }
 
 .subtotal td {
@@ -335,10 +354,14 @@ function cell(value: number | undefined) {
   border-top: 1px solid rgba(128, 128, 128, 0.35);
 }
 
+/* 现金净变动是这张表的结论：比一级科目再重一档。 */
 .net td {
+  font-size: 1.12em;
   font-weight: 700;
-  border-top: 1px solid rgba(128, 128, 128, 0.55);
-  border-bottom: 1px solid rgba(128, 128, 128, 0.55);
+  letter-spacing: 0.02em;
+  background-image: linear-gradient(rgba(128, 128, 128, 0.38), rgba(128, 128, 128, 0.38));
+  border-top: 2px solid rgba(128, 128, 128, 0.6);
+  border-bottom: 2px solid rgba(128, 128, 128, 0.6);
 }
 
 .muted td {
