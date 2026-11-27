@@ -234,10 +234,11 @@ function cell(value: number | undefined) {
    两者只差 8px 又都是左对齐，实际看不出谁是谁的子项。 */
 .group td {
   padding-top: 6px;
-  /* 与「支出」标题同一缩进（表格 td 的基准 padding 是 6px），不额外缩进。 */
+  /* 与「支出」标题同一缩进（表格 td 的基准 padding 是 6px），不额外缩进。
+     字号不缩：全表只有一档字号，层级靠缩进 + 字重 + 淡色区分。 */
   padding-left: 6px;
   font-weight: 600;
-  font-size: 0.95em;
+  font-size: 1em;
   opacity: 0.75;
 }
 
@@ -245,10 +246,12 @@ function cell(value: number | undefined) {
   padding-left: 22px;
 }
 
+/* 小计是金额行，字号必须与明细一致——之前整行压到 0.95em，金额反而比明细小，
+   层级上像"降级"。区分靠字重和虚线上边框，不靠字号。 */
 .groupSubtotal td {
   padding-left: 14px;
   font-weight: 600;
-  font-size: 0.95em;
+  font-size: 1em;
   border-top: 1px dotted rgba(128, 128, 128, 0.45);
 }
 
