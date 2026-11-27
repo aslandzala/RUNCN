@@ -7,7 +7,6 @@ xit.add({
   contextItems: () => [
     { cmd: 'XIT FIN' },
     { cmd: 'XIT FINBS' },
-    { cmd: 'XIT FINCF' },
     { cmd: 'XIT FINPR' },
     { cmd: 'XIT FINCH' },
   ],
