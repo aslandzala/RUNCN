@@ -250,7 +250,8 @@ function cell(value: number | undefined) {
           <td>期末现金</td>
           <td v-for="(v, i) in closingCashColumns" :key="i" :class="$style.num">{{ cell(v) }}</td>
         </tr>
-        <tr :class="$style.muted">
+        <tr :class="$style.gap"><td colspan="4"></td></tr>
+        <tr :class="[$style.muted, $style.reconcile]">
           <td>未纳入明细的部分</td>
           <td v-for="(v, i) in uncovered" :key="i" :class="$style.num">{{ cell(v) }}</td>
         </tr>
@@ -332,6 +333,12 @@ function cell(value: number | undefined) {
   border: none;
   font-size: 0;
   line-height: 0;
+}
+
+/* 对账附注（未纳入明细 + 它的两行「其中」）与上面主表分开：
+   留半行 + 一条虚线上边框，表明这是核对用的说明，不是活动明细的一部分。 */
+.reconcile td {
+  border-top: 1px dotted rgba(128, 128, 128, 0.45);
 }
 
 /* 明细科目与一级科目同一缩进基准：一级 6px、明细 22px、活动净额 14px。
