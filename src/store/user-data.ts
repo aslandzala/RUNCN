@@ -29,9 +29,6 @@ export const initialUserData = deepFreeze({
     // 生成操作包 / 定价等交易所列表里是否显示冷门交易所 CI2（Arclight）与 NC2（Hubur）。
     // 默认隐藏；老数据没有该字段时按 false 处理（见 core/exchange-options.ts）。
     showRareExchanges: false,
-    // 修正游戏原生汉化里的术语误译（贷款模板字段、身份、条件/流水口径）。
-    // 默认开启：只做「软覆盖」，游戏改过文案就自动跳过，不会把正确文案改错。
-    i18nFix: true,
     burn: {
       red: 3,
       yellow: 7,

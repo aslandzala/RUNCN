@@ -65,12 +65,6 @@ const showRareExchanges = computed({
   set: value => (userData.settings.showRareExchanges = value),
 });
 
-// 原生汉化术语修正，老数据没有该字段时按开启处理（与 store 默认值一致）。
-const i18nFix = computed({
-  get: () => userData.settings.i18nFix ?? true,
-  set: value => (userData.settings.i18nFix = value),
-});
-
 const exchangeChartTypes: { label: string; value: UserData.ExchangeChartType }[] = [
   {
     label: '平滑',
@@ -207,17 +201,6 @@ function openDesktopNotifications() {
       label="冷门交易所"
       tooltip="在生成操作包、维修单、PLAN / IND 定价等交易所列表里显示 CI2（Arclight）与 NC2（Hubur）。默认隐藏。">
       <RadioItem v-model="showRareExchanges">显示 CI2 / NC2</RadioItem>
-    </Active>
-  </form>
-  <SectionHeader>
-    原生汉化
-    <Tooltip
-      :class="$style.tooltip"
-      tooltip="修正游戏汉化里的术语误译：贷款模板的「还款利率 / 期限 / 间隔」、借贷双方、发放与还款的流水口径等。只做软覆盖——游戏改过文案就自动跳过，不会把正确文案改成旧译文。" />
-  </SectionHeader>
-  <form>
-    <Active label="术语修正" tooltip="关闭后恢复游戏原本的译文（立即生效，无需刷新）。">
-      <RadioItem v-model="i18nFix">修正贷款等术语</RadioItem>
     </Active>
   </form>
   <SectionHeader>
