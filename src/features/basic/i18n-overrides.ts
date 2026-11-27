@@ -101,7 +101,7 @@ const OVERRIDES: Override[] = [
   // 与真正的总资产（总资产 = 资产合计）撞名。FINBS / FINCH 里一直叫「权益」。
   { key: 'AccountCategory.EQUITY', from: '总资产', to: '权益' },
   { key: 'AccountCategory.REVENUE', from: '营收', to: '收入' },
-  { key: 'AccountType.REVENUE', from: '一般营收', to: '一般收入' },
+  { key: 'AccountType.REVENUE', from: '一般营收', to: '其他收入' },
   { key: 'AccountType.EXTRAORDINARY_INCOME', from: '非常规营收', to: '非常规收入' },
   { key: 'AccountType.DIVIDEND_INCOME', from: '股息', to: '股息收入' },
   { key: 'AccountType.CASH_ESCROW', from: '押金（', to: '托管资金（' },
@@ -131,7 +131,8 @@ const OVERRIDES: Override[] = [
   { key: 'AccountType.PRODUCTION_FEE_REVENUE', from: '生产费用营收', to: '生产费用收入' },
   { key: 'AccountType.TRANSPORT_REVENUE', from: '运输营收', to: '运输收入' },
   { key: 'AccountType.CONTRIBUTION_REVENUE', from: '货币贡献营收', to: '货币贡献收入' },
-  { key: 'AccountType.WAREHOUSE_FEE_REVENUE', from: '仓储费用营收', to: '仓储费用收入' },
+  // 「仓储费用收入」读起来自相矛盾（费用是支出），实际是收到的仓储费。
+  { key: 'AccountType.WAREHOUSE_FEE_REVENUE', from: '仓储费用营收', to: '仓储费收入' },
   {
     key: 'AccountType.SITE_ESTABLISHMENT_TAXES_REVENUE',
     from: '基地建立费用营收',
@@ -154,9 +155,20 @@ const OVERRIDES: Override[] = [
     from: '来自基地建立费用的营收',
     to: '基地建立费用收入',
   },
-  { key: 'BookingType.WAREHOUSE_FEE_REVENUES', from: '来自仓储费用的营收', to: '仓储费用收入' },
+  { key: 'BookingType.WAREHOUSE_FEE_REVENUES', from: '来自仓储费用的营收', to: '仓储费收入' },
   // FIN 记账时间列写成了「预定于」（像"计划在某时"），实际是这笔流水的入账时间。
   { key: 'CashBookings.time', from: '预定于', to: '记账时间' },
+
+  // ── 利润表里几个看不出含义的科目 ──
+  // 「材料售出」是动作名，和现金流水「已售卖材料」同源，容易当成同一笔记录；它是收入科目。
+  { key: 'AccountType.MATERIAL_SALE_REVENUE', from: '材料售出', to: '材料销售收入' },
+  // 「一般支出 / 一般收入」的"一般"没界定范围，实际是其他科目之外的兜底项。
+  { key: 'AccountType.EXPENSE', from: '一般支出', to: '其他支出' },
+  // 「合同核销」是行话：合同签订时就挂了一笔应收/应付，终止后只能在账面上冲平，
+  // 没有现金进出，也不该有对应收入。改成"冲账"，避免被读成真的亏了一笔钱。
+  { key: 'AccountType.CONTRACT_WRITE_OFF', from: '合同核销', to: '合同作废冲账' },
+  // 「交易费用」没说清是哪类交易的手续费。
+  { key: 'AccountType.TRANSACTION_FEES', from: '交易费用', to: '交易手续费' },
 
   // ── 经济概览 / 三张报表的标题与期间列 ──
   // 概览里的 equity 指标同样被译成「总资产」，与真正的总资产并排显示两个「总资产」。
