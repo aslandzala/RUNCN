@@ -90,6 +90,12 @@ interface GroupedRows {
   total: number;
 }
 
+// 「这一期是否存在」只能由 ordered[index] 决定：某期确实存在、但该段所有科目都是 0
+// 时，buildRows 会把全零科目删掉，此时列里没有任何明细行，但它仍然是 0 而不是「—」。
+function hasPeriod(index: number) {
+  return ordered.value[index] !== undefined;
+}
+
 const expenseGroups = computed<GroupedRows[]>(() => {
   const buckets = new Map<ExpenseGroup, Row[]>();
   for (const row of expenseRows.value) {
@@ -100,33 +106,27 @@ const expenseGroups = computed<GroupedRows[]>(() => {
   }
   return EXPENSE_GROUPS.filter(g => buckets.has(g.id)).map(group => {
     const rows = buckets.get(group.id) ?? [];
-    const totals = Array.from({ length: COLUMNS }, (_, i) => {
-      const present = rows.filter(r => r.values[i] !== undefined);
-      if (present.length === 0) {
-        return undefined;
-      }
-      return present.reduce((sum, r) => sum + (r.values[i] ?? 0), 0);
-    });
+    const totals = Array.from({ length: COLUMNS }, (_, i) =>
+      hasPeriod(i) ? rows.reduce((sum, r) => sum + (r.values[i] ?? 0), 0) : undefined,
+    );
     const total = rows.reduce((sum, r) => sum + r.total, 0);
     return { id: group.id, name: group.name, hint: group.hint, rows, totals, total };
   });
 });
 
-// 某一列没有任何一期数据时返回 undefined（显示「—」），不能拿 0 顶替：
-// 服务器只给 1 期时，后两列的明细是「—」而合计是 0，看起来像「这两期收入为零」。
-function columnTotal(rows: Row[], index: number): number | undefined {
-  const present = rows.filter(row => row.values[index] !== undefined);
-  if (present.length === 0) {
-    return undefined;
-  }
-  return present.reduce((sum, row) => sum + (row.values[index] ?? 0), 0);
+function columnTotal(rows: Row[], index: number): number {
+  return rows.reduce((sum, row) => sum + (row.values[index] ?? 0), 0);
 }
 
 const revenueTotals = computed<(number | undefined)[]>(() =>
-  Array.from({ length: COLUMNS }, (_, i) => columnTotal(revenueRows.value, i)),
+  Array.from({ length: COLUMNS }, (_, i) =>
+    hasPeriod(i) ? columnTotal(revenueRows.value, i) : undefined,
+  ),
 );
 const expenseTotals = computed<(number | undefined)[]>(() =>
-  Array.from({ length: COLUMNS }, (_, i) => columnTotal(expenseRows.value, i)),
+  Array.from({ length: COLUMNS }, (_, i) =>
+    hasPeriod(i) ? columnTotal(expenseRows.value, i) : undefined,
+  ),
 );
 const netTotals = computed<(number | undefined)[]>(() =>
   Array.from({ length: COLUMNS }, (_, i) => {
@@ -187,7 +187,7 @@ function cell(value: number | undefined) {
           <td colspan="5">收入</td>
         </tr>
         <tr v-for="row in revenueRows" :key="row.type">
-          <td :title="row.hint" :class="$style.groupRow">{{ row.name }}</td>
+          <td :data-tooltip="row.hint" :class="$style.groupRow">{{ row.name }}</td>
           <td v-for="(v, i) in row.values" :key="i" :class="$style.num">{{ cell(v) }}</td>
           <td :class="$style.num">{{ cell(row.total) }}</td>
         </tr>
@@ -203,10 +203,10 @@ function cell(value: number | undefined) {
         </tr>
         <template v-for="group in expenseGroups" :key="group.id">
           <tr :class="$style.group">
-            <td colspan="5" :title="group.hint">{{ group.name }}</td>
+            <td colspan="5" :data-tooltip="group.hint">{{ group.name }}</td>
           </tr>
           <tr v-for="row in group.rows" :key="row.type">
-            <td :title="row.hint" :class="$style.groupRow">{{ row.name }}</td>
+            <td :data-tooltip="row.hint" :class="$style.groupRow">{{ row.name }}</td>
             <td v-for="(v, i) in row.values" :key="i" :class="$style.num">{{ cell(v) }}</td>
             <td :class="$style.num">{{ cell(row.total) }}</td>
           </tr>
