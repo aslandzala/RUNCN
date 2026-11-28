@@ -20,8 +20,15 @@ import { BUILDING_MAX_LEVEL, SCALABLE_BUILDINGS } from './govh-buildings';
 
 export interface RecommendInput {
   population: Record<WorkforceLevel, number>;
-  /** 政府当前已建等级（作为下限，不建议降级） */
-  start: Readonly<Record<string, number>>;
+  /** 建造起点：界面上的「当前等级起」或「0 级起」，推荐结果以它为下限、只升不降 */
+  origin: Readonly<Record<string, number>>;
+  /**
+   * 真实现有等级，仅用于反推「基地 / 住房」这类非建筑供给。
+   * 选「0 级起」时 origin 全为 0，但星球上的基建其实还在，不能把它们的产出
+   * 当成基地基线供给（否则推荐会认为需求已满足、给出空清单）。
+   * 省略时退回 origin。
+   */
+  existing?: Readonly<Record<string, number>>;
   /** 当前满足度（0~1，含封顶），用来反推基地 / 住房等非基建供给 */
   fulfillment: Record<Need, number>;
   /** 从 from 级升到 to 级这一段的材料成本 */
@@ -46,10 +53,13 @@ const usableBuildings = SCALABLE_BUILDINGS.map(building => building.code);
 /** 建议配置：只保证五类基建需求达标，不追求材料种类最少。 */
 export function recommendLevels(input: RecommendInput): RecommendResult {
   const needed = computeNeeded(input.population);
+  // existing 只用来反推基线供给：真实存在的基建（哪怕这次按「0 级起」规划）已经
+  // 在贡献满足度，不能被当成基地 / 住房给的免费供给。
+  const existingLevels = input.existing ?? input.origin;
   const levels: Record<string, number> = {};
   const provided: Record<string, number> = {};
   for (const code of usableBuildings) {
-    levels[code] = Math.min(input.start[code] ?? 0, BUILDING_MAX_LEVEL);
+    levels[code] = Math.min(input.origin[code] ?? 0, BUILDING_MAX_LEVEL);
     provided[code] = levels[code];
   }
 
@@ -57,16 +67,22 @@ export function recommendLevels(input: RecommendInput): RecommendResult {
   const target: Record<InfraNeed, number> = {} as Record<InfraNeed, number>;
   for (const need of INFRA_NEEDS) {
     target[need] = needed[need];
-    // 已有供给 = 当前满足度 × 需求量；其中等级带来的部分先扣掉，剩下的
+    // 已有供给 = 当前满足度 × 需求量；其中**真实现有等级**带来的部分先扣掉，剩下的
     // （基地 +50/座、住房等）视为「不是本次要建的东西」。
     const now = Math.max(0, (input.fulfillment[need] ?? 0) * needed[need]);
-    let fromLevels = 0;
+    let existingSupply = 0;
     for (const code of usableBuildings) {
       const per = BUILDING_NEEDS.get(code)?.[need] ?? 0;
-      fromLevels += per * levels[code];
+      existingSupply += per * Math.min(existingLevels[code] ?? 0, BUILDING_MAX_LEVEL);
     }
-    const baseline = Math.max(0, now - fromLevels);
-    supply[need] = fromLevels + baseline;
+    const baseline = Math.max(0, now - existingSupply);
+    // 起点为 0 时，本次要新建的供给从零算起；基线里只剩基地 / 住房那部分。
+    let fromOrigin = 0;
+    for (const code of usableBuildings) {
+      const per = BUILDING_NEEDS.get(code)?.[need] ?? 0;
+      fromOrigin += per * levels[code];
+    }
+    supply[need] = fromOrigin + baseline;
   }
 
   const added: Record<InfraNeed, number> = { ...(supply as Record<InfraNeed, number>) };

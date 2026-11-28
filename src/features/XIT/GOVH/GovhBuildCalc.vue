@@ -18,6 +18,7 @@ import {
   PLANETARY_PROJECTS,
   SCALABLE_BUILDINGS,
   WAREHOUSE_CAPACITY_PER_LEVEL,
+  WAREHOUSE_MATERIALS,
   WAREHOUSE_MAX_LEVEL,
   computeBuildMaterials,
   levelCost,
@@ -80,6 +81,9 @@ watch(
     lastPlanet = planet;
     if (fresh) {
       recommendApplied.value = false;
+      // 仓库目标同样要归位：上一个星球的 10 级仓库目标留在新星球上，会凭空多算
+      // 9 级升级的材料。这里先清零，读到该星球真实等级后再抬到起点。
+      warehouseLevel.value = 0;
     }
     const merged: Record<string, number> = fresh ? {} : { ...levels.value };
     for (const building of SCALABLE_BUILDINGS) {
@@ -130,8 +134,10 @@ const warehouseReading = ref(false);
 const warehouseLevels = new Map<string, number>();
 let warehouseSeq = 0;
 
-async function loadWarehouseLevel() {
-  const planet = selectedPlanet.value.trim();
+// 读某个星球的仓库等级。planet 由调用方显式传入：切星球时旧的一次读取可能还在
+// 路上，不能让它去读「当前选中星球」（那已经是另一个星球了）。
+async function loadWarehouseLevel(planetInput: string) {
+  const planet = planetInput.trim();
   warehouseStart.value = undefined;
   if (planet === '') {
     return;
@@ -139,6 +145,9 @@ async function loadWarehouseLevel() {
   const cached = warehouseLevels.get(planet.toUpperCase());
   if (cached !== undefined) {
     warehouseStart.value = cached;
+    if (warehouseLevel.value < cached) {
+      warehouseLevel.value = cached;
+    }
     return;
   }
   const seq = ++warehouseSeq;
@@ -161,11 +170,21 @@ async function loadWarehouseLevel() {
 watch(
   selectedPlanet,
   planet => {
+    const target = planet.trim();
     // 两次 hidden 窗口读取必须串行：showBuffer 的队列在窗口关闭动画期间会复用同一个壳，
     // 并发时后一个会拿到前一个正在关闭的窗口，解析必然失败（表现为状态一直「—」）。
+    //
+    // 每步之后都要确认「选的还是这个星球」：切星球时旧的一条链可能还在等窗口，
+    // 它的返回值会盖掉新星球的状态（例如把 B 星球的船厂标成未建成）。
     void (async () => {
-      await loadWarehouseLevel();
-      await loadBuiltProjects(planet.trim());
+      await loadWarehouseLevel(target);
+      if (selectedPlanet.value.trim() !== target) {
+        return;
+      }
+      await loadBuiltProjects(target);
+      if (selectedPlanet.value.trim() !== target) {
+        return;
+      }
     })();
   },
   { immediate: true },
@@ -196,6 +215,18 @@ const materials = computed(() =>
 );
 
 const tickers = computed(() => Object.keys(materials.value).sort());
+
+// 全部可能用到的建筑材料（与当前清单无关）：推荐要在「还什么都没选」时就算成本，
+// 只订阅清单里的物料会让 stepCost 全部落到兜底价 1，等于按材料数量而不是市价排序。
+const CANDIDATE_TICKERS: readonly string[] = [
+  ...new Set([
+    ...PLANETARY_PROJECTS.flatMap(project => Object.keys(project.materials)),
+    ...SCALABLE_BUILDINGS.flatMap(building => Object.keys(building.baseMaterials)),
+    ...Object.keys(WAREHOUSE_MATERIALS),
+  ]),
+].sort();
+
+const priceTickers = computed(() => [...new Set([...CANDIDATE_TICKERS, ...tickers.value])].sort());
 
 function clampInt(value: number | string, max: number): number {
   const parsed = typeof value === 'number' ? value : Number.parseInt(value, 10);
@@ -285,8 +316,8 @@ function toggleProject(id: string) {
 
 const prices = computed<Record<string, number | undefined>>(() => {
   void priceNonce.value; // 依赖：手动刷新时强制重算
-  const live = readPrices(tickers.value);
-  return Object.fromEntries(tickers.value.map(ticker => [ticker, live[ticker]?.price]));
+  const live = readPrices(priceTickers.value);
+  return Object.fromEntries(priceTickers.value.map(ticker => [ticker, live[ticker]?.price]));
 });
 
 const exchanges = computed<Record<string, string>>(() => {
@@ -391,7 +422,10 @@ function applyRecommend() {
   recommendApplied.value = true;
   const result = recommendLevels({
     population: snapshot.population,
-    start: startLevels.value,
+    origin: startLevels.value,
+    // 真实现有等级：选「0 级起」时起点全 0，但星球上的基建还在贡献满足度，
+    // 不能被当成基地给的免费基线（否则推荐会认为需求已满足、返回空清单）。
+    existing: snapshot.levels,
     fulfillment: snapshot.fulfillment,
     cost: stepCost,
   });
@@ -415,10 +449,10 @@ function applyRecommend() {
   recommendNote.value = `建议后满足度：${parts.join(' · ')}${tail}`;
 }
 
-// 物料集合随选择变化：每次变化都为缺报价的物料补订阅（内部按「物料.市场」去重，
-// 重复调用不会重开窗口）。
+// 进页面就把全部候选材料的价格订上（分批、自动关窗），之后清单变化只补新出现的。
+// subscribePrices 内部按「物料.市场」去重，重复调用不会重开窗口。
 watch(
-  tickers,
+  priceTickers,
   next => {
     void subscribePrices(next, () => disposed.value);
   },
